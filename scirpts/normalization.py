@@ -53,15 +53,12 @@ def create_per_band_norm_dataframe(concatenated_stats: Dict[str, np.array], stat
 def calculate_normalization_factors(npz_files_folder: str, metadata_file: str, max_workers: int = 4):
     """ Utility function to calculate normalization factors from the npz files """
 
-    norm_config = ComputeNormalizationConfig(
-        npz_files_folder=npz_files_folder,
-        metadata_file=metadata_file
-    )
+    config = ComputeNormalizationConfig(npz_files_folder=npz_files_folder, metadata_file=metadata_file)
 
-    npz_files = [f for f in os.listdir(norm_config.npz_files_folder) if f.endswith('.npz')]
+    npz_files = [f for f in os.listdir(config.npz_files_folder) if f.endswith('.npz')]
 
     LOGGER.info('Compute stats per patchlet')
-    partial_fn = partial(stats_per_npz_ts, config=norm_config)
+    partial_fn = partial(stats_per_npz_ts, config=config)
     results = [partial_fn(f) for f in npz_files]  # Replaced multiprocess with a simple list comprehension
 
     stats_keys = ['mean', 'std', 'median', 'perc_99']
@@ -74,9 +71,8 @@ def calculate_normalization_factors(npz_files_folder: str, metadata_file: str, m
     LOGGER.info('Create dataframe with normalization factors')
     df = create_per_band_norm_dataframe(concatenated_stats, stats_keys, identifier_keys)
 
-    # Convert to datetime
-    df['timestamp'] = pd.to_datetime(df['timestamp'])
-    df['timestamp'] = df['timestamp'].dt.tz_localize(None)
+    # Convert to datetime and ensure no tzinfo
+    df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True).dt.tz_localize(None)
 
     # Add "month" period
     df['month'] = df['timestamp'].dt.to_period("M")
@@ -109,21 +105,17 @@ def calculate_normalization_factors(npz_files_folder: str, metadata_file: str, m
     df['norm_meanstd_median_b0'], df['norm_meanstd_median_b1'], df['norm_meanstd_median_b2'], df['norm_meanstd_median_b3'], \
     df['norm_meanstd_std_b0'], df['norm_meanstd_std_b1'], df['norm_meanstd_std_b2'], df['norm_meanstd_std_b3'] = zip(*map(norms, df.month))
 
-    LOGGER.info(f'Read metadata file {norm_config.metadata_file}')
-    df_info = pd.read_csv(norm_config.metadata_file)
+    LOGGER.info(f'Read metadata file {metadata_file}')
+    df_info = pd.read_csv(metadata_file)
 
-    # Ensure the timestamp is datetime
-    df_info['timestamp'] = pd.to_datetime(df_info['timestamp'])
-
-    # Apply tz_localize only if the timestamp column is datetime
-    if pd.api.types.is_datetime64_any_dtype(df_info['timestamp']):
-        df_info['timestamp'] = df_info['timestamp'].dt.tz_localize(None)
+    # Ensure the timestamp is datetime with no tzinfo
+    df_info['timestamp'] = pd.to_datetime(df_info['timestamp'], utc=True).dt.tz_localize(None)
 
     LOGGER.info('Add normalization information to metadata file')
     new_df = df_info.merge(df, how='inner', on=['patchlet', 'timestamp'])
 
     LOGGER.info('Overwrite metadata file with new file')
-    new_df.to_csv(norm_config.metadata_file, index=False)
+    new_df.to_csv(metadata_file, index=False)
 
 if __name__ == '__main__':
     npz_files_folder = '/home/joseph/Code/localstorage/npz_files'
