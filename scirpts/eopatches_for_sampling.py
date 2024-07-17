@@ -2,7 +2,7 @@ import warnings
 import logging
 import fs.move  # required by eopatch.save
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from xarray import DataArray, Dataset, open_dataset
 from eolearn.core import EOPatch, FeatureType, OverwritePermission
 from numpy import datetime_as_string, newaxis, concatenate
@@ -32,20 +32,20 @@ EOPATCH_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/eopatches/')
 
 def transform_timestamps(time_data: DataArray) -> list:
     """
-    Transforms xarray.DataArray timestamps to ISO 8601 strings with local timezone.
+    Transforms xarray.DataArray timestamps to ISO 8601 strings with utc timezone.
 
     Args:
         time_data (DataArray): The input xarray.DataArray timestamps.
 
     Returns:
-        list: A list of transformed timestamps as datetime objects with local timezone.
+        list: A list of transformed timestamps as datetime objects with utc timezone.
     """
     time_strings = datetime_as_string(time_data, unit='ms')
     transformed_timestamps = []
     for t in time_strings:
-        dt = datetime.strptime(t, '%Y-%m-%dT%H:%M:%S.%f')
-        dt_with_tz = dt.replace(tzinfo=tzlocal())
-        transformed_timestamps.append(dt_with_tz)
+        dt = datetime.strptime(
+            t, '%Y-%m-%dT%H:%M:%S.%f').replace(tzinfo=timezone.utc)
+        transformed_timestamps.append(dt)
     return transformed_timestamps
 
 

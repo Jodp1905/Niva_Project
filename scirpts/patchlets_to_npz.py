@@ -17,7 +17,7 @@ LOGGER = logging.getLogger(__name__)
 NIVA_PROJECT_DATA_ROOT = os.getenv('NIVA_PROJECT_DATA_ROOT')
 PATCHLETS_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/patchlets/')
 NPZ_FILES_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/npz_files/')
-DATAFRAME_PATH = Path(f'{NIVA_PROJECT_DATA_ROOT}/patchlets_dataframe.csv')
+METADATA_PATH = Path(f'{NIVA_PROJECT_DATA_ROOT}/patchlets_dataframe.csv')
 
 # Parameters
 # Number of patchlets data concatenated in each .npz end file
@@ -38,7 +38,7 @@ def extract_npys(patchlet_path: str) -> Tuple:
             - y_extent (numpy.ndarray): The extent mask array loaded from 'EXTENT.npy'.
             - y_distance (numpy.ndarray): The distance mask array loaded from 'DISTANCE.npy'.
             - timestamps (list): The timestamps extracted from the EOPatch.
-            - eop_names (numpy.ndarray): An array containing the patchlet path 
+            - eop_names (numpy.ndarray): An array containing the patchlet path
             repeated for each timestamp.
     """
     try:
@@ -68,7 +68,7 @@ def process_chunk(chunk_patchlets: List[str], chunk_index: int, output_folder: s
         output_folder (str): Path to the folder where the npz files will be saved.
 
     Returns:
-        None
+        df (pd.DataFrame): A DataFrame containing the metadata of the saved chunk.
     """
     results = []
     for patchlet_path in chunk_patchlets:
@@ -94,7 +94,7 @@ def concatenate_npys(results: List[Tuple]) -> Tuple[np.ndarray, np.ndarray, np.n
         results (List[Tuple]): A list of tuples containing arrays to be concatenated.
 
     Returns:
-        Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]: 
+        Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         A tuple of concatenated arrays.
 
     Raises:
@@ -138,19 +138,20 @@ def save_chunk(npys_dict: Tuple[np.ndarray, np.ndarray, np.ndarray,
     """
     eopatches = [os.path.basename(eop) for eop in npys_dict[5]]
     filename = f'patchlets_field_delineation_{chunk_index}'
+    timestamps = pd.to_datetime(npys_dict[4], utc=True).tz_localize(None)
     np.savez(os.path.join(output_folder, f'{filename}.npz'),
              X=npys_dict[0],
              y_boundary=npys_dict[1],
              y_extent=npys_dict[2],
              y_distance=npys_dict[3],
-             timestamps=npys_dict[4],
+             timestamps=timestamps,
              eopatches=npys_dict[5])
     df = pd.DataFrame(
         dict(chunk=[f'{filename}.npz'] * len(npys_dict[5]),
              eopatch=eopatches,
              patchlet=npys_dict[5],
              chunk_pos=chunk_index,
-             timestamp=npys_dict[4]))
+             timestamp=timestamps))
     return df
 
 
@@ -203,9 +204,10 @@ def patchlets_to_npz_files():
                 LOGGER.error(f'A task failed: {e}')
     LOGGER.info('All chunks processed, writing metadata...')
     if df_list:
-        pd.concat(df_list).to_csv(DATAFRAME_PATH, index=True,
-                                  index_label='index', header=True)
-    LOGGER.info(f'Saved metadata to {DATAFRAME_PATH}')
+        df_concatenated = pd.concat(df_list).reset_index(drop=True)
+        df_concatenated.to_csv(METADATA_PATH, index=True,
+                               index_label='index', header=True)
+    LOGGER.info(f'Saved metadata to {METADATA_PATH}')
 
 
 if __name__ == '__main__':
