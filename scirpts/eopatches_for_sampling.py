@@ -183,8 +183,6 @@ def create_all_eopatches() -> None:
 
     This function creates EOPatches by iterating over pairs of NetCDF and mask files.
     It ensures that the number of NetCDF files and mask files are equal, and that their IDs match.
-    EOPatches are created using the `create_eopatch_from_nc_and_tiff` function performed
-    by a pool of processes.
 
     Returns:
         None
@@ -203,6 +201,8 @@ def create_all_eopatches() -> None:
         mask_id = "_".join(mask_file.stem.split('_')[:2])
         assert (nc_id == mask_id)
 
+    LOGGER.info(
+        f'Creating EOPatches from {len(file_tuples)} pairs of NetCDF and mask files')
     with ProcessPoolExecutor() as executor:
         futures = []
         with tqdm(total=len(file_tuples)) as pbar:
@@ -219,6 +219,9 @@ def create_all_eopatches() -> None:
 
 
 def main():
+    if not NIVA_PROJECT_DATA_ROOT:
+        raise ValueError(
+            "NIVA_PROJECT_DATA_ROOT environment variable is not set")
     create_all_eopatches()
 
 

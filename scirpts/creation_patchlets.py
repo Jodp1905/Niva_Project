@@ -239,8 +239,6 @@ def create_all_patchlets():
     for item in PATCHLETS_DIR.iterdir():
         if item.is_dir() and item.name.startswith('patchlet_'):
             shutil.rmtree(item)
-        elif item.is_file() and item.name.startswith('patchlet_'):
-            item.unlink()
 
     # Get all EOPatches
     eopatches = [eopatch_path.absolute() for eopatch_path in EOPATCH_DIR.iterdir()
