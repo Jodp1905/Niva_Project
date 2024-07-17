@@ -14,6 +14,7 @@ from rasterio.coords import BoundingBox
 from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm import tqdm
+import numpy as np
 
 # Configure logging
 logging.basicConfig(level=logging.ERROR)
@@ -26,7 +27,7 @@ warnings.filterwarnings("ignore")
 NIVA_PROJECT_DATA_ROOT = os.getenv('NIVA_PROJECT_DATA_ROOT')
 NC_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/sentinel2/images/FR/')
 MASK_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/sentinel2/masks/FR/')
-EOPATCH_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/eopatchs/')
+EOPATCH_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/eopatches/')
 
 
 def transform_timestamps(time_data: DataArray) -> list:
@@ -91,7 +92,7 @@ def create_eopatch_from_nc_and_tiff(nc_file_path: str, mask_tiff_path: str,
             if var != 'spatial_ref':
                 data = ds[var].values
 
-                # Check data dimensions and reshape if necessary
+                # Eopatch data should have 4 dimensions: time, height, width, channels
                 if data.ndim == 2:
                     # Add time and channel dimensions
                     data = data[newaxis, ..., newaxis]
@@ -122,7 +123,7 @@ def create_eopatch_from_nc_and_tiff(nc_file_path: str, mask_tiff_path: str,
 
         # Load and add mask features from TIFF
         LOGGER.info(f'Loading mask data from {mask_tiff_path}')
-        with rasterio_open(mask_tiff_path) as src:
+        with rasterio_open(mask_tiff_path, driver="GTiff") as src:
             src: DatasetReader
             bounds: BoundingBox = src.bounds
             crs_tif = src.crs.to_string()
@@ -137,16 +138,23 @@ def create_eopatch_from_nc_and_tiff(nc_file_path: str, mask_tiff_path: str,
         # Add bbox to EOPatch
         eopatch.bbox = bbox
 
+        # Exract mask data
+        # TODO : why are EXTENT, BOUNDARY and ENUM floats ?
+        extent = mask_data[0].astype(np.int32)
+        boundary = mask_data[1].astype(np.int32)
+        distance = mask_data[2]
+        enum = mask_data[3].astype(np.int32)
+
         # Add each tif mask as a feature in the EOPatch
         # TODO : we get a warning here, can we fix it by using FeatureType.DATA_TIMELESS ?
         eopatch.add_feature(FeatureType.MASK_TIMELESS, 'EXTENT',
-                            mask_data[0][..., newaxis])
+                            extent[..., newaxis])
         eopatch.add_feature(FeatureType.MASK_TIMELESS, 'BOUNDARY',
-                            mask_data[1][..., newaxis])
+                            boundary[..., newaxis])
         eopatch.add_feature(FeatureType.MASK_TIMELESS, 'DISTANCE',
-                            mask_data[2][..., newaxis])
+                            distance[..., newaxis])
         eopatch.add_feature(FeatureType.MASK_TIMELESS, 'ENUM',
-                            mask_data[3][..., newaxis])
+                            enum[..., newaxis])
 
         # Verify that the features have been added
         for feature in ['EXTENT', 'BOUNDARY', 'DISTANCE', 'ENUM']:
