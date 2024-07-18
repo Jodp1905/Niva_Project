@@ -8,6 +8,7 @@ from eolearn.core import EOPatch
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm import tqdm
 import shutil
+import random
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -150,7 +151,7 @@ def save_chunk(npys_dict: Tuple[np.ndarray, np.ndarray, np.ndarray,
         dict(chunk=[f'{filename}.npz'] * len(npys_dict[5]),
              eopatch=eopatches,
              patchlet=npys_dict[5],
-             chunk_pos=chunk_index,
+             chunk_pos=[i for i in range(len(npys_dict[5]))],
              timestamp=timestamps))
     return df
 
@@ -174,6 +175,7 @@ def patchlets_to_npz_files():
     """
     patchlet_paths = [
         patchlet for patchlet in PATCHLETS_DIR.iterdir() if patchlet.is_dir()]
+    random.shuffle(patchlet_paths)
 
     # Clean output directory
     LOGGER.info(f'Cleaning output directory {NPZ_FILES_DIR}')
