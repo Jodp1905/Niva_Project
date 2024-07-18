@@ -138,7 +138,7 @@ def save_chunk(npys_dict: Tuple[np.ndarray, np.ndarray, np.ndarray,
         df (pd.DataFrame): A DataFrame containing the metadata of the saved chunk.
     """
     eopatches = [os.path.basename(eop) for eop in npys_dict[5]]
-    filename = f'patchlets_field_delineation_{chunk_index}'
+    filename = f'patchlets_fd_{chunk_index}'
     timestamps = pd.to_datetime(npys_dict[4], utc=True).tz_localize(None)
     np.savez(os.path.join(output_folder, f'{filename}.npz'),
              X=npys_dict[0],
