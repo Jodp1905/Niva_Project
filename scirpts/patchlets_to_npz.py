@@ -22,7 +22,7 @@ METADATA_PATH = Path(f'{NIVA_PROJECT_DATA_ROOT}/patchlets_dataframe.csv')
 
 # Parameters
 # Number of patchlets data concatenated in each .npz end file
-NPZ_CHUNK_SIZE = int(os.getenv('NPZ_CHUNK_SIZE', 500))
+NPZ_NB_CHUNKS = int(os.getenv('NPZ_NB_CHUNKS', 100))
 
 
 def extract_npys(patchlet_path: str) -> Tuple:
@@ -185,10 +185,14 @@ def patchlets_to_npz_files():
             shutil.rmtree(item)
 
     # Compute chunks
-    chunks = [patchlet_paths[i:i + NPZ_CHUNK_SIZE]
-              for i in range(0, len(patchlet_paths), NPZ_CHUNK_SIZE)]
+    chunk_size = len(patchlet_paths) // NPZ_NB_CHUNKS
+    lost = len(patchlet_paths) % NPZ_NB_CHUNKS
+    chunks = [patchlet_paths[i:i + chunk_size]
+              for i in range(0, len(patchlet_paths), chunk_size)][:-1]
+
     LOGGER.info(
-        f'Processing {len(patchlet_paths)} patchlets in {len(chunks)} chunks')
+        f'Processing {len(patchlet_paths)} patchlets in {len(chunks)} chunks '
+        f'of size {chunk_size} each, with {lost} patchlets lost.')
 
     # Process chunks in parallel
     df_list = []
