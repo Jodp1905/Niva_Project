@@ -72,9 +72,11 @@ def k_folds(metadata_path: str, npz_folder: str,
     LOGGER.info('Assign folds to eopatches')
     # Randomly assign folds to patchlets
     rng = default_rng()
-    fold = rng.integers(1, n_folds + 1, size=len(eops))
-    eopatch_to_fold_map = dict(zip(eops, fold))
+    fold = np.array_split(rng.permutation(eops), n_folds)
+    eopatch_to_fold_map = {eop: fold_idx + 1 for fold_idx,
+                           fold_eops in enumerate(fold) for eop in fold_eops}
     df['fold'] = df['eopatch'].apply(lambda x: eopatch_to_fold_map[x])
+
     for nf in range(n_folds):
         LOGGER.info(f'{len(df[df.fold == nf + 1])} patchlets in fold {nf + 1}')
 
