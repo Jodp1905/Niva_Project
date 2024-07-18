@@ -95,13 +95,12 @@ class SamplePatchlets(EOTask):
         """
         return ratio < self.fraction if self.sample_positive else ratio > self.fraction
 
-    def execute(self, eopatch: EOPatch, seed: int = None) -> List[EOPatch]:
+    def execute(self, eopatch: EOPatch) -> List[EOPatch]:
         """
         Executes the creation of patchlets from the given EOPatch.
 
         Args:
             eopatch (EOPatch): The input EOPatch from which patchlets will be created.
-            seed (int, optional): The seed value for random number generation. Defaults to None.
 
         Returns:
             List[EOPatch]: A list of EOPatch objects representing the created patchlets.
@@ -128,7 +127,7 @@ class SamplePatchlets(EOTask):
                 f"Patch size {self.patch_size} is too large "
                 f"for the mask dimensions {n_rows}x{n_cols}.")
 
-        np.random.seed(seed)
+        rng = np.random.default_rng()
         eops_out = []
 
         # TODO : there is no colision check between patchlets
@@ -147,10 +146,10 @@ class SamplePatchlets(EOTask):
                     row = 0
                     col = 0
                 else:
-                    row = np.random.randint(
-                        self.buffer, n_rows - self.patch_size - self.buffer)
-                    col = np.random.randint(
-                        self.buffer, n_cols - self.patch_size - self.buffer)
+                    row = rng.integers(self.buffer,
+                                       n_rows - self.patch_size - self.buffer)
+                    col = rng.integers(self.buffer,
+                                       n_cols - self.patch_size - self.buffer)
                 patchlet = mask[row:row + self.patch_size,
                                 col:col + self.patch_size]
                 ratio = np.sum(patchlet != self.no_data_value)  \
