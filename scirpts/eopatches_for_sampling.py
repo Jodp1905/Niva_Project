@@ -17,7 +17,7 @@ from tqdm import tqdm
 import numpy as np
 
 # Configure logging
-logging.basicConfig(level=logging.ERROR)
+logging.basicConfig(level=logging.INFO)
 LOGGER = logging.getLogger(__name__)
 
 # Suppress DeprecationWarning
@@ -68,8 +68,8 @@ def create_eopatch_from_nc_and_tiff(nc_file_path: str, mask_tiff_path: str,
 
     """
     try:
-        LOGGER.info(f'Entering create_eopatch_from_nc_and_tiff with '
-                    f'{nc_file_path}, {mask_tiff_path}, {output_eopatch_dir}')
+        LOGGER.debug(f'Entering create_eopatch_from_nc_and_tiff with '
+                     f'{nc_file_path}, {mask_tiff_path}, {output_eopatch_dir}')
         ds: Dataset = open_dataset(nc_file_path)
         LOGGER.debug(f'Dataset structure: {ds}')
 
@@ -87,7 +87,7 @@ def create_eopatch_from_nc_and_tiff(nc_file_path: str, mask_tiff_path: str,
             'CLP': None
         }
 
-        LOGGER.info('Adding raster data from NetCDF to EOPatch')
+        LOGGER.debug('Adding raster data from NetCDF to EOPatch')
         for var in ds.data_vars:
             if var != 'spatial_ref':
                 data = ds[var].values
@@ -122,7 +122,7 @@ def create_eopatch_from_nc_and_tiff(nc_file_path: str, mask_tiff_path: str,
             eopatch.add_feature(FeatureType.DATA, 'CLP', data_dict['CLP'])
 
         # Load and add mask features from TIFF
-        LOGGER.info(f'Loading mask data from {mask_tiff_path}')
+        LOGGER.debug(f'Loading mask data from {mask_tiff_path}')
         with rasterio_open(mask_tiff_path, driver="GTiff") as src:
             src: DatasetReader
             bounds: BoundingBox = src.bounds
@@ -166,7 +166,7 @@ def create_eopatch_from_nc_and_tiff(nc_file_path: str, mask_tiff_path: str,
         image_id = ("_".join(basename.split('_')[:2]))
         eopatch_name = f'eopatch_{image_id}'
         eopatch_path = output_eopatch_dir / eopatch_name
-        LOGGER.info(f'Saving EOPatch to {eopatch_path}')
+        LOGGER.debug(f'Saving EOPatch to {eopatch_path}')
         os.makedirs(eopatch_path, exist_ok=True)
         eopatch.save(eopatch_path,
                      overwrite_permission=OverwritePermission.OVERWRITE_PATCH)
@@ -205,7 +205,7 @@ def create_all_eopatches() -> None:
         f'Creating EOPatches from {len(file_tuples)} pairs of NetCDF and mask files')
     with ProcessPoolExecutor() as executor:
         futures = []
-        with tqdm(total=len(file_tuples)) as pbar:
+        with tqdm(total=len(file_tuples), desc="Creating eopatches") as pbar:
             for nc_file, mask_file in file_tuples:
                 future = executor.submit(
                     create_eopatch_from_nc_and_tiff, nc_file, mask_file, eopatch_dir)

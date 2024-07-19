@@ -81,22 +81,15 @@ def create_per_band_norm_dataframe(concatenated_stats: Dict[str, np.array],
     return pd.DataFrame(norm_df_dict)
 
 
-def calculate_normalization_factors(npz_files_folder: str,
-                                    metadata_file: str,
-                                    output_file: str) -> None:
+def calculate_normalization_factors() -> None:
     """
     Calculate normalization factors for a set of npz files 
     and update a metadata file with the normalization information.
 
-    Args:
-        npz_files_folder (str): The path to the folder containing the npz files.
-        metadata_file (str): The path to the input metadata file.
-        output_file (str): The path to the output metadata file.
-
     Returns:
         None
     """
-    npz_files = list(Path(npz_files_folder).rglob('*.npz'))
+    npz_files = list(Path(NPZ_FILES_DIR).rglob('*.npz'))
 
     LOGGER.info(f'Compute stats per patchlet for {len(npz_files)} npz files')
     results = []
@@ -106,7 +99,7 @@ def calculate_normalization_factors(npz_files_folder: str,
             future = executor.submit(stats_per_npz_ts, npz_file)
             futures.append(future)
         for future in tqdm(as_completed(futures), total=len(futures),
-                           desc='Computing stats per patchlet'):
+                           desc='Computing patchlets statistics'):
             try:
                 res = future.result()
                 results.append(res)
@@ -155,22 +148,22 @@ def calculate_normalization_factors(npz_files_folder: str,
     ]
     df_stats = pd.concat([df_stats, norm_df], axis=1)
 
-    LOGGER.info(f'Read metadata file {metadata_file}')
-    df_info = pd.read_csv(metadata_file, parse_dates=['timestamp'])
+    LOGGER.info(
+        f'Add normalization information to metadata file {METADATA_PATH}')
+    df_info = pd.read_csv(METADATA_PATH, parse_dates=['timestamp'])
     df_info['timestamp'] = pd.to_datetime(
         df_info['timestamp'], utc=True).dt.tz_localize(None)
     df_info['patchlet'] = df_info['patchlet'].astype(str)
     df_info['month'] = df_info['timestamp'].dt.to_period("M")
 
-    LOGGER.info('Add normalization information to metadata file')
     new_df = df_info.merge(df_stats, how='inner', on=[
                            'patchlet', 'month']).reset_index(drop=True)
-    LOGGER.info('Writing normalized metadata file')
-    new_df.to_csv(output_file, index=False)
+    LOGGER.info(
+        f'Writing normalized metadata file to {NORMALIZED_METADATA_PATH}')
+    new_df.to_csv(NORMALIZED_METADATA_PATH, index=False)
 
 
 if __name__ == '__main__':
     if not NIVA_PROJECT_DATA_ROOT:
         raise ValueError('NIVA_PROJECT_DATA_ROOT environment variable not set')
-    calculate_normalization_factors(
-        NPZ_FILES_DIR, METADATA_PATH, NORMALIZED_METADATA_PATH)
+    calculate_normalization_factors()

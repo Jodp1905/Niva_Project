@@ -249,7 +249,7 @@ def create_all_patchlets():
     total_patchlets_best_case = len(eopatches) * EOTASK_NUM_SAMPLES
     with ProcessPoolExecutor() as executor:
         futures = []
-        with tqdm(total=len(eopatches)) as pbar:
+        with tqdm(total=len(eopatches), desc="Creating patchlets") as pbar:
             for eopatch_path in eopatches:
                 future = executor.submit(create_patchlets, eopatch_path)
                 futures.append(future)
