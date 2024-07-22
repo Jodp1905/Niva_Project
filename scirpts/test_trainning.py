@@ -37,21 +37,23 @@ def get_dataset(npz_folder, metadata_path, fold, augment, augmentations_features
     dataset = npz_dir_dataset(os.path.join(npz_folder, f'fold_{fold}'), data, metadata_path=metadata_path,
                               fold=fold, randomize=randomize, num_parallel=num_parallel)
 
-    #normalizer = NORMALIZER["to_medianstd"]
+    normalizer = NORMALIZER["to_medianstd"]
 
-    #augmentations = [augment_data(augmentations_features, augmentations_label)] if augment else []
-    #dataset_ops = [normalizer, Unpack(), ToFloat32()] + augmentations + [FillNaN(fill_value=-2),
-                                                                         #OneMinusEncoding(n_classes=2),
-                                                                         #LabelsToDict(["extent", "boundary", "distance"])]
+    augmentations = [augment_data(augmentations_features, augmentations_label)] if augment else []
+    dataset_ops = [normalizer, Unpack(), ToFloat32()] + augmentations + [FillNaN(fill_value=-2),
+                                                                         OneMinusEncoding(n_classes=2),
+                                                                         LabelsToDict(["extent", "boundary", "distance"])]
 
-    #for dataset_op in dataset_ops:
-    #    dataset = dataset.map(dataset_op)
+    for dataset_op in dataset_ops:
+       dataset = dataset.map(dataset_op)
 
     return dataset
 
 
 def initialise_model(input_shape, model_config, chkpt_folder=None):
     model = ResUnetA(model_config)
+    ### print debug
+    print(f"model config : {model_config}, input shape : {input_shape}")
     model.build(dict(features=[None] + list(input_shape)))
 
     model.net.compile(
@@ -169,7 +171,7 @@ if __name__ == '__main__':
     MODEL_FOLDER = Path(f'{NIVA_PROJECT_DATA_ROOT}/model/')
     CHKPT_FOLDER = None
     wandb_id = None
-    input_shape = [32, 32, 4]
+    input_shape = [64, 64, 4]
     n_classes = 2
     batch_size = 8
     iterations_per_epoch = 150
