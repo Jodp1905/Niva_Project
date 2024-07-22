@@ -47,8 +47,7 @@ def fold_split(chunk: str, df: pd.DataFrame, npz_folder: str, folds_folder: str,
         if not idx_fold.empty:
             patchlets = {key: data[key][idx_fold] for key in data}
             fold_folder = os.path.join(folds_folder, f'fold_{fold}')
-            fold_chunk_name = f'{chunk}_fold_{fold}.npz'
-            np.savez(os.path.join(fold_folder, fold_chunk_name), **patchlets)
+            np.savez(os.path.join(fold_folder, chunk_full), **patchlets)
 
 
 def k_folds() -> None:
