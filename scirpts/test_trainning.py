@@ -171,7 +171,7 @@ if __name__ == '__main__':
     MODEL_FOLDER = Path(f'{NIVA_PROJECT_DATA_ROOT}/model/')
     CHKPT_FOLDER = None
     wandb_id = None
-    input_shape = [64, 64, 4]
+    input_shape = [256, 256, 4]
     n_classes = 2
     batch_size = 8
     iterations_per_epoch = 150

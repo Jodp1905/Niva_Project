@@ -241,6 +241,10 @@ def _npz_file_lazy_dataset(file_path: str, fields: List[str], types: List[np.dty
         np_arrays.append(meanstd_mean)
         np_arrays.append(meanstd_median)
         np_arrays.append(meanstd_std)
+
+        for arr in np_arrays:
+            print(arr.shape)
+        print(np_arrays[-4:])
         
         # Check that arrays match in the first dimension
         n_samples = np_arrays[0].shape[0]
