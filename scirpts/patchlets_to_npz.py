@@ -50,12 +50,20 @@ def extract_npys(patchlet_path: str) -> Tuple:
             patchlet_path, 'mask_timeless', 'EXTENT.npy'))
         y_distance = np.load(os.path.join(
             patchlet_path, 'mask_timeless', 'DISTANCE.npy'))
+
+        # Repeat the timeless masks along the time dimension
         eop = EOPatch.load(patchlet_path, lazy_loading=True)
         timestamps = eop.timestamp
+        time_steps = len(timestamps)
+        y_boundary = np.repeat(y_boundary[np.newaxis, ...], time_steps, axis=0)
+        y_extent = np.repeat(y_extent[np.newaxis, ...], time_steps, axis=0)
+        y_distance = np.repeat(y_distance[np.newaxis, ...], time_steps, axis=0)
         eop_names = np.repeat([patchlet_path], len(timestamps), axis=0)
+
     except Exception as e:
         LOGGER.error(f"Could not create for {patchlet_path}. Exception {e}")
         return None, None, None, None, None, None
+
     return X_data, y_boundary, y_extent, y_distance, timestamps, eop_names
 
 
