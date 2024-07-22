@@ -4,6 +4,7 @@ import json
 import logging
 from datetime import datetime
 from functools import reduce, partial
+from pathlib import Path
 
 import numpy as np
 import tensorflow as tf
@@ -13,7 +14,7 @@ from eoflow.models.segmentation_base import segmentation_metrics
 from eoflow.models.losses import TanimotoDistanceLoss
 from eoflow.models.segmentation_unets import ResUnetA
 
-from .tf_data_utils import (
+from tf_data_utils import (
     npz_dir_dataset,
     normalize_meanstd,
     Unpack, ToFloat32, augment_data, FillNaN, OneMinusEncoding, LabelsToDict)
@@ -145,7 +146,7 @@ def train_k_folds(npz_folder, metadata_path, model_folder, chkpt_folder, input_s
     if not os.path.exists(model_path):
         os.makedirs(model_path)
     checkpoints_path = os.path.join(model_path, 'checkpoints', 'model.ckpt')
-    with open(f'{model_path}/model_cfg.json', 'w') as jfile:
+    with open(f'{model_path}/model_cfg.json', 'w+') as jfile:
         json.dump(model_config, jfile)
     avg_model.net.save_weights(checkpoints_path)
 
@@ -160,13 +161,15 @@ def train_k_folds(npz_folder, metadata_path, model_folder, chkpt_folder, input_s
 
 
 if __name__ == '__main__':
-    # Define all parameters here
+    # Define paths
+    NIVA_PROJECT_DATA_ROOT = os.getenv('NIVA_PROJECT_DATA_ROOT')
+    NPZ_FILES_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/npz_files/')
+    METADATA_PATH = Path(f'{NIVA_PROJECT_DATA_ROOT}/patchlets_dataframe_final.csv')
+    KFOLD_FOLDER = Path(f'{NIVA_PROJECT_DATA_ROOT}/folds/')
+    MODEL_FOLDER = Path(f'{NIVA_PROJECT_DATA_ROOT}/model/')
+    CHKPT_FOLDER = None
     wandb_id = None
-    npz_folder = "NPZ_FILES_FOLDER"
-    metadata_path = "METADATA_DATAFRAME"
-    model_folder = "LOCAL_MODEL_FOLDER"
-    chkpt_folder = "CHKPT_FOLDER"
-    input_shape = [256, 256, 4]
+    input_shape = [32, 32, 4]
     n_classes = 2
     batch_size = 8
     iterations_per_epoch = 150
@@ -198,5 +201,5 @@ if __name__ == '__main__':
         "class_weights": None
     }
 
-    train_k_folds(npz_folder, metadata_path, model_folder, chkpt_folder, input_shape, n_classes,
+    train_k_folds(KFOLD_FOLDER, METADATA_PATH, MODEL_FOLDER, CHKPT_FOLDER, input_shape, n_classes,
                   batch_size, iterations_per_epoch, num_epochs, model_name, n_folds, seed, augmentations_features, augmentations_label, model_config, wandb_id)
