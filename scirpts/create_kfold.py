@@ -40,10 +40,10 @@ def fold_split(chunk: str, df: pd.DataFrame, npz_folder: str, folds_folder: str,
     Returns:
         None
     """
-    chunk = chunk + '.npz'
-    data = np.load(os.path.join(npz_folder, chunk), allow_pickle=True)
+    chunk_full = chunk + '.npz'
+    data = np.load(os.path.join(npz_folder, chunk_full), allow_pickle=True)
     for fold in range(1, n_folds + 1):
-        idx_fold = df[(df.chunk == chunk) & (df.fold == fold)].chunk_pos
+        idx_fold = df[(df.chunk == chunk_full) & (df.fold == fold)].chunk_pos
         if not idx_fold.empty:
             patchlets = {key: data[key][idx_fold] for key in data}
             fold_folder = os.path.join(folds_folder, f'fold_{fold}')
