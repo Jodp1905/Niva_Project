@@ -196,7 +196,7 @@ def patchlets_to_npz_files():
     chunk_size = len(patchlet_paths) // NPZ_NB_CHUNKS
     lost = len(patchlet_paths) % NPZ_NB_CHUNKS
     chunks = [patchlet_paths[i:i + chunk_size]
-              for i in range(0, len(patchlet_paths), chunk_size)][:-1]
+              for i in range(0, len(patchlet_paths) - lost, chunk_size)]
 
     LOGGER.info(
         f'Processing {len(patchlet_paths)} patchlets in {len(chunks)} chunks '
