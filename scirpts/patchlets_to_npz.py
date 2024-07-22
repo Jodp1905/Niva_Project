@@ -3,113 +3,221 @@ import logging
 import numpy as np
 import pandas as pd
 from typing import Tuple, List
-
+from pathlib import Path
 from eolearn.core import EOPatch
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from tqdm import tqdm
+import shutil
+import random
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 LOGGER = logging.getLogger(__name__)
 
+# Define paths
+NIVA_PROJECT_DATA_ROOT = os.getenv('NIVA_PROJECT_DATA_ROOT')
+PATCHLETS_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/patchlets/')
+NPZ_FILES_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/npz_files/')
+METADATA_PATH = Path(f'{NIVA_PROJECT_DATA_ROOT}/patchlets_dataframe.csv')
 
-def extract_npys_from_folder(patchlets_folder: str) -> List[Tuple]:
-    """ Extract X, y_boundary, y_extent, y_distance, timestamps, eop_names from all patchlets in patchlets_folder. """
-    results = []
-    for patchlet_folder in os.listdir(patchlets_folder):
-        patchlet_path = os.path.join(patchlets_folder, patchlet_folder)
-        if os.path.isdir(patchlet_path):
-            result = extract_npys(patchlet_path)
-            if any(x is None for x in result):  # Check if any element in result tuple is None
-                LOGGER.warning(f"Failed to extract data from {patchlet_folder}")
-                print(f"Failed to extract data from {patchlet_folder}")
-            else:
-                results.append(result)
-
-    return results
+# Parameters
+# Number of patchlets data concatenated in each .npz end file
+NPZ_NB_CHUNKS = int(os.getenv('NPZ_NB_CHUNKS', 100))
 
 
 def extract_npys(patchlet_path: str) -> Tuple:
-    """ Return X, y_boundary, y_extent, y_distance, timestamps, eop_names numpy arrays for this patchlet."""
+    """
+    Extracts numpy arrays and other data from the given patchlet path.
+
+    Args:
+        patchlet_path (str): The path to the patchlet directory.
+
+    Returns:
+        Tuple: A tuple containing the following elements:
+            - X_data (numpy.ndarray): The data array loaded from 'BANDS.npy'.
+            - y_boundary (numpy.ndarray): The boundary mask array loaded from 'BOUNDARY.npy'.
+            - y_extent (numpy.ndarray): The extent mask array loaded from 'EXTENT.npy'.
+            - y_distance (numpy.ndarray): The distance mask array loaded from 'DISTANCE.npy'.
+            - timestamps (list): The timestamps extracted from the EOPatch.
+            - eop_names (numpy.ndarray): An array containing the patchlet path
+            repeated for each timestamp.
+    """
     try:
         X_data = np.load(os.path.join(patchlet_path, 'data', 'BANDS.npy'))
-        y_boundary = np.load(os.path.join(patchlet_path, 'mask_timeless', 'BOUNDARY.npy'))
-        y_extent = np.load(os.path.join(patchlet_path, 'mask_timeless', 'EXTENT.npy'))
-        y_distance = np.load(os.path.join(patchlet_path, 'mask_timeless', 'DISTANCE.npy'))
-
+        y_boundary = np.load(os.path.join(
+            patchlet_path, 'mask_timeless', 'BOUNDARY.npy'))
+        y_extent = np.load(os.path.join(
+            patchlet_path, 'mask_timeless', 'EXTENT.npy'))
+        y_distance = np.load(os.path.join(
+            patchlet_path, 'mask_timeless', 'DISTANCE.npy'))
         eop = EOPatch.load(patchlet_path, lazy_loading=True)
         timestamps = eop.timestamp
         eop_names = np.repeat([patchlet_path], len(timestamps), axis=0)
-
     except Exception as e:
         LOGGER.error(f"Could not create for {patchlet_path}. Exception {e}")
         return None, None, None, None, None, None
-
     return X_data, y_boundary, y_extent, y_distance, timestamps, eop_names
 
 
-def concatenate_npys(results: List[Tuple]) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """ Concatenate numpy arrays from each patchlet into one big numpy array"""
-    if not results:
-        LOGGER.warning("No valid results to concatenate.")
-        print("No valid results to concatenate.")
-        return None, None, None, None, None, None
-    
-    X, y_boundary, y_extent, y_distance, timestamps, eop_names = zip(*results)
+def process_chunk(chunk_patchlets: List[str], chunk_index: int, output_folder: str) -> None:
+    """
+    Process a chunk of patchlets and save the results as npz files.
 
+    Args:
+        chunk_patchlets (List[str]): List of paths to the patchlet files.
+        chunk_index (int): Index of the chunk being processed.
+        output_folder (str): Path to the folder where the npz files will be saved.
+
+    Returns:
+        df (pd.DataFrame): A DataFrame containing the metadata of the saved chunk.
+    """
+    results = []
+    for patchlet_path in chunk_patchlets:
+        result = extract_npys(patchlet_path)
+        if any(x is None for x in result):
+            LOGGER.warning(f"Failed to extract data from {patchlet_path}")
+        else:
+            results.append(result)
+    if not results:
+        LOGGER.warning(f"No valid results in chunk {chunk_index}.")
+        return
+    npys_dict = concatenate_npys(results)
+    df: pd.DataFrame = save_chunk(npys_dict, chunk_index, output_folder)
+    return df
+
+
+def concatenate_npys(results: List[Tuple]) -> Tuple[np.ndarray, np.ndarray, np.ndarray,
+                                                    np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Concatenates the arrays from the given list of tuples.
+
+    Args:
+        results (List[Tuple]): A list of tuples containing arrays to be concatenated.
+
+    Returns:
+        Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        A tuple of concatenated arrays.
+
+    Raises:
+        None
+
+    """
+    if not results:
+        return None, None, None, None, None, None
+    X, y_boundary, y_extent, y_distance, timestamps, eop_names = zip(*results)
     X = np.concatenate(X)
     y_boundary = np.concatenate(y_boundary)
     y_extent = np.concatenate(y_extent)
     y_distance = np.concatenate(y_distance)
     timestamps = np.concatenate(timestamps)
     eop_names = np.concatenate(eop_names)
-
     return X, y_boundary, y_extent, y_distance, timestamps, eop_names
 
 
-def save_into_chunks(output_folder: str, npys_dict: Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray], chunk_size: int, output_dataframe: str) -> None:
-    eopatches = [os.path.basename("_".join(x.split("_")[:-1])) for x in npys_dict[5]]
-    chunk_counter = 0
-    dfs = []
+def save_chunk(npys_dict: Tuple[np.ndarray, np.ndarray, np.ndarray,
+                                np.ndarray, np.ndarray, np.ndarray],
+               chunk_index: int,
+               output_folder: str) -> None:
+    """
+    Save the chunk data as numpy arrays and update the metadata file.
 
-    if not os.path.isdir(output_folder):
-        os.makedirs(output_folder)
-    
-    for i in range(0, len(npys_dict[0]), chunk_size):
-        filename = f'patchlets_field_delineation_{chunk_counter}'
-        np.savez(os.path.join(output_folder, f'{filename}.npz'),
-                    X=npys_dict[0][i:i + chunk_size],
-                    y_boundary=npys_dict[1][i:i + chunk_size],
-                    y_extent=npys_dict[2][i:i + chunk_size],
-                    y_distance=npys_dict[3][i:i + chunk_size],
-                    timestamps=npys_dict[4][i:i + chunk_size],
-                    eopatches=npys_dict[5][i:i + chunk_size])
+    Args:
+        npys_dict (Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]):
+            A tuple containing the numpy arrays to be saved.
+            The elements of the tuple are:
+                - X: Input data array
+                - y_boundary: Boundary data array
+                - y_extent: Extent data array
+                - y_distance: Distance data array
+                - timestamps: Timestamps data array
+                - eopatches: Eopatches paths
+        chunk_index (int): The index of the chunk.
+        output_folder (str): The path to the output folder.
 
-        dfs.append(pd.DataFrame(dict(chunk=[f'{filename}.npz'] * len(npys_dict[5][i:i + chunk_size]),
-                                        eopatch=eopatches[i:i + chunk_size],
-                                        patchlet=npys_dict[5][i:i + chunk_size],
-                                        chunk_pos=list(range(0, len(eopatches[i:i + chunk_size]))),
-                                        timestamp=npys_dict[4][i:i + chunk_size])))
+    Returns:
+        df (pd.DataFrame): A DataFrame containing the metadata of the saved chunk.
+    """
+    eopatches = [os.path.basename(eop) for eop in npys_dict[5]]
+    filename = f'patchlets_fd_{chunk_index}'
+    timestamps = pd.to_datetime(npys_dict[4], utc=True).tz_localize(None)
+    np.savez(os.path.join(output_folder, f'{filename}.npz'),
+             X=npys_dict[0],
+             y_boundary=npys_dict[1],
+             y_extent=npys_dict[2],
+             y_distance=npys_dict[3],
+             timestamps=timestamps,
+             eopatches=npys_dict[5])
+    df = pd.DataFrame(
+        dict(chunk=[f'{filename}.npz'] * len(npys_dict[5]),
+             eopatch=eopatches,
+             patchlet=npys_dict[5],
+             chunk_pos=[i for i in range(len(npys_dict[5]))],
+             timestamp=timestamps))
+    return df
 
-        chunk_counter += 1
 
-    metadata_dir = os.path.dirname(output_dataframe)
-    if not os.path.isdir(metadata_dir):
-        os.makedirs(metadata_dir)
-    
-    pd.concat(dfs).to_csv(output_dataframe, index=False)
+def patchlets_to_npz_files():
+    """
+    Convert patchlets to NPZ files.
 
+    This function converts a list of patchlets to NPZ files. It performs the following steps:
+    1. Retrieves the paths of all patchlets in the PATCHLETS_DIR directory.
+    2. Cleans the output directory.
+    3. Divides the patchlet paths into chunks of size NPZ_CHUNK_SIZE.
+    4. Processes each chunk in parallel using a ProcessPoolExecutor.
+    5. Concatenates the resulting dataframes and saves them as a CSV file.
 
-# Fonction pour la création des .npz
-def patchlets_to_npz_files(patchlets_folder: str, output_folder: str, chunk_size: int, output_dataframe: str):
-    results = extract_npys_from_folder(patchlets_folder)
-    npys_dict = concatenate_npys(results)
-    save_into_chunks(output_folder, npys_dict, chunk_size, output_dataframe)
+    Parameters:
+    None
+
+    Returns:
+    None
+    """
+    patchlet_paths = [
+        patchlet for patchlet in PATCHLETS_DIR.iterdir() if patchlet.is_dir()]
+    random.shuffle(patchlet_paths)
+
+    # Clean output directory
+    LOGGER.info(f'Cleaning output directory {NPZ_FILES_DIR}')
+    NPZ_FILES_DIR.mkdir(parents=True, exist_ok=True)
+    for item in NPZ_FILES_DIR.iterdir():
+        if item.is_dir() and item.name.startswith('patchlet_'):
+            shutil.rmtree(item)
+
+    # Compute chunks
+    chunk_size = len(patchlet_paths) // NPZ_NB_CHUNKS
+    lost = len(patchlet_paths) % NPZ_NB_CHUNKS
+    chunks = [patchlet_paths[i:i + chunk_size]
+              for i in range(0, len(patchlet_paths), chunk_size)][:-1]
+
+    LOGGER.info(
+        f'Processing {len(patchlet_paths)} patchlets in {len(chunks)} chunks '
+        f'of size {chunk_size} each, with {lost} patchlets lost.')
+
+    # Process chunks in parallel
+    df_list = []
+    with ProcessPoolExecutor() as executor:
+        futures = []
+        for chunk_index, chunk in enumerate(chunks):
+            future = executor.submit(
+                process_chunk, chunk, chunk_index, NPZ_FILES_DIR)
+            futures.append(future)
+        for future in tqdm(as_completed(futures), total=len(futures), desc="Processing chunks"):
+            try:
+                df = future.result()
+                df_list.append(df)
+            except Exception as e:
+                LOGGER.error(f'A task failed: {e}')
+    LOGGER.info('All chunks processed, writing metadata...')
+    if df_list:
+        df_concatenated = pd.concat(df_list).reset_index(drop=True)
+        df_concatenated.to_csv(METADATA_PATH, index=True,
+                               index_label='index', header=True)
+    LOGGER.info(f'Saved metadata to {METADATA_PATH}')
 
 
 if __name__ == '__main__':
-    # Modifier les chemins et autres paramètres selon vos besoins
-    patchlets_folder = '/home/joseph/Code/localstorage/patchlets'
-    output_folder = '/home/joseph/Code/localstorage/npz_files'
-    chunk_size = 1000
-    output_dataframe = '/home/joseph/Code/localstorage/dataframe.csv'
-    
-    patchlets_to_npz_files(patchlets_folder, output_folder, chunk_size, output_dataframe)
+    if NIVA_PROJECT_DATA_ROOT is None:
+        raise ValueError(
+            "NIVA_PROJECT_DATA_ROOT environment variable should be set.")
+    patchlets_to_npz_files()
