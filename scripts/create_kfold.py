@@ -8,6 +8,8 @@ import numpy as np
 from numpy.random import default_rng
 import pandas as pd
 from pathlib import Path
+import shutil
+import time
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -57,6 +59,13 @@ def k_folds() -> None:
     Returns:
         None
     """
+
+    LOGGER.info(f'Cleaning output directory {KFOLD_FOLDER}')
+    KFOLD_FOLDER.mkdir(parents=True, exist_ok=True)
+    for item in KFOLD_FOLDER.iterdir():
+        if item.is_dir() and item.name.startswith('fold_'):
+            shutil.rmtree(item)
+
     LOGGER.info(f'Read metadata file {NORMALIZED_METADATA_PATH}')
     df = pd.read_csv(NORMALIZED_METADATA_PATH)
     eops = df.eopatch.unique()
