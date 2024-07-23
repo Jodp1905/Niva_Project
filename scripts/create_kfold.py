@@ -62,11 +62,9 @@ def k_folds() -> None:
     eops = df.eopatch.unique()
 
     LOGGER.info('Assign folds to eopatches')
-    # Randomly assign folds to patchlets
-    rng = default_rng()
-    fold = np.array_split(rng.permutation(eops), NUM_FOLDS)
-    eopatch_to_fold_map = {eop: fold_idx + 1 for fold_idx,
-                           fold_eops in enumerate(fold) for eop in fold_eops}
+    np.random.seed()
+    fold = np.random.randint(1, high=NUM_FOLDS + 1, size=len(eops))
+    eopatch_to_fold_map = dict(zip(eops, fold))
     df['fold'] = df['eopatch'].apply(lambda x: eopatch_to_fold_map[x])
 
     for nf in range(NUM_FOLDS):
