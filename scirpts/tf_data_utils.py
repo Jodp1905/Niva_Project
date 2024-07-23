@@ -151,10 +151,26 @@ def _construct_norm_arrays(file_path: str, metadata_path: str, fold: int = None)
     if fold is not None:
         df = df[df.fold == fold]
 
-    perc99 = df[['norm_perc99_b0', 'norm_perc99_b1', 'norm_perc99_b2', 'norm_perc99_b3']].values
-    meanstd_mean = df[['norm_meanstd_mean_b0', 'norm_meanstd_mean_b1', 'norm_meanstd_mean_b2', 'norm_meanstd_mean_b3']].values
-    meanstd_median = df[['norm_meanstd_median_b0', 'norm_meanstd_median_b1', 'norm_meanstd_median_b2', 'norm_meanstd_median_b3']].values
-    meanstd_std = df[['norm_meanstd_std_b0', 'norm_meanstd_std_b1', 'norm_meanstd_std_b2', 'norm_meanstd_std_b3']].values
+    if df.empty:
+        print('df empty')
+        print(chunk_name)
+        print(fold)
+
+
+    perc99 = df[['norm_perc99_b0', 'norm_perc99_b1', 'norm_perc99_b2', 'norm_perc99_b3']]
+    meanstd_mean = df[['norm_meanstd_mean_b0', 'norm_meanstd_mean_b1', 'norm_meanstd_mean_b2', 'norm_meanstd_mean_b3']]
+    meanstd_median = df[['norm_meanstd_median_b0', 'norm_meanstd_median_b1', 'norm_meanstd_median_b2', 'norm_meanstd_median_b3']]
+    meanstd_std = df[['norm_meanstd_std_b0', 'norm_meanstd_std_b1', 'norm_meanstd_std_b2', 'norm_meanstd_std_b3']]
+
+    if perc99.empty:
+        print('oops')
+        print(chunk_name)
+        print(fold)
+
+    perc99 = perc99.values
+    meanstd_mean = meanstd_mean.values
+    meanstd_median = meanstd_median.values
+    meanstd_std = meanstd_std.values
     
     return perc99, meanstd_mean, meanstd_median, meanstd_std
 
@@ -200,11 +216,12 @@ def npz_dir_dataset(file_dir_or_list: Union[str, List[str]], features: dict, met
     np_arrays.append(meanstd_std)
 
     # Read shape and type info
+    # TODO check the types
     types = (tf.uint16, tf.float32, tf.float32, tf.float32, tf.float64, tf.float64, tf.float64, tf.float64)
     shapes = tuple(arr.shape[1:] for arr in np_arrays)
 
     # Create datasets
-    datasets = [_npz_file_lazy_dataset(file, fields, types, shapes, metadata_path, fold=fold) for file in files]
+    datasets = [_npz_file_lazy_dataset(f, fields, types, shapes, metadata_path, fold=fold) for f in files]
     ds = tf.data.Dataset.from_tensor_slices(datasets)
 
     # Shuffle files and interleave multiple files in parallel
@@ -241,13 +258,11 @@ def _npz_file_lazy_dataset(file_path: str, fields: List[str], types: List[np.dty
         np_arrays.append(meanstd_mean)
         np_arrays.append(meanstd_median)
         np_arrays.append(meanstd_std)
-
-        for arr in np_arrays:
-            print(arr.shape)
-        print(np_arrays[-4:])
         
         # Check that arrays match in the first dimension
         n_samples = np_arrays[0].shape[0]
+        for arr in np_arrays:
+            print(np.shape(arr))
         assert all(n_samples == arr.shape[0] for arr in np_arrays)
         # Iterate through the first dimension of arrays
         for slices in zip(*np_arrays):
