@@ -52,8 +52,6 @@ def get_dataset(npz_folder, metadata_path, fold, augment, augmentations_features
 
 def initialise_model(input_shape, model_config, chkpt_folder=None):
     model = ResUnetA(model_config)
-    ### print debug
-    print(f"model config : {model_config}, input shape : {input_shape}")
     model.build(dict(features=[None] + list(input_shape)))
 
     model.net.compile(
@@ -171,13 +169,13 @@ if __name__ == '__main__':
     MODEL_FOLDER = Path(f'{NIVA_PROJECT_DATA_ROOT}/model/')
     CHKPT_FOLDER = None
     wandb_id = None
-    input_shape = [64, 64, 4]
+    input_shape = [256, 256, 4]
     n_classes = 2
     batch_size = 8
-    iterations_per_epoch = 150
-    num_epochs = 3
+    iterations_per_epoch = 1
+    num_epochs = 1
     model_name = "resunet-a"
-    n_folds = 5
+    n_folds = 10
     seed = 42
     augmentations_features = ["flip_left_right", "flip_up_down", "rotate", "brightness"]
     augmentations_label = ["flip_left_right", "flip_up_down", "rotate"]

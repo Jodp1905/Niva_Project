@@ -200,11 +200,12 @@ def npz_dir_dataset(file_dir_or_list: Union[str, List[str]], features: dict, met
     np_arrays.append(meanstd_std)
 
     # Read shape and type info
+    # TODO check the types
     types = (tf.uint16, tf.float32, tf.float32, tf.float32, tf.float64, tf.float64, tf.float64, tf.float64)
     shapes = tuple(arr.shape[1:] for arr in np_arrays)
 
     # Create datasets
-    datasets = [_npz_file_lazy_dataset(file, fields, types, shapes, metadata_path, fold=fold) for file in files]
+    datasets = [_npz_file_lazy_dataset(f, fields, types, shapes, metadata_path, fold=fold) for f in files]
     ds = tf.data.Dataset.from_tensor_slices(datasets)
 
     # Shuffle files and interleave multiple files in parallel

@@ -25,11 +25,6 @@ def main():
         durations.append(('create_all_eopatches', end_time - start_time))
 
         start_time = time.time()
-        create_all_patchlets()
-        end_time = time.time()
-        durations.append(('create_all_patchlets', end_time - start_time))
-
-        start_time = time.time()
         patchlets_to_npz_files()
         end_time = time.time()
         durations.append(('patchlets_to_npz_files', end_time - start_time))

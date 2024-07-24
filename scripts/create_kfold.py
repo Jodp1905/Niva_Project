@@ -8,6 +8,8 @@ import numpy as np
 from numpy.random import default_rng
 import pandas as pd
 from pathlib import Path
+import shutil
+import time
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -40,15 +42,14 @@ def fold_split(chunk: str, df: pd.DataFrame, npz_folder: str, folds_folder: str,
     Returns:
         None
     """
-    chunk = chunk + '.npz'
-    data = np.load(os.path.join(npz_folder, chunk), allow_pickle=True)
+    chunk_full = chunk + '.npz'
+    data = np.load(os.path.join(npz_folder, chunk_full), allow_pickle=True)
     for fold in range(1, n_folds + 1):
-        idx_fold = df[(df.chunk == chunk) & (df.fold == fold)].chunk_pos
+        idx_fold = df[(df.chunk == chunk_full) & (df.fold == fold)].chunk_pos
         if not idx_fold.empty:
             patchlets = {key: data[key][idx_fold] for key in data}
             fold_folder = os.path.join(folds_folder, f'fold_{fold}')
-            fold_chunk_name = f'{chunk}_fold_{fold}.npz'
-            np.savez(os.path.join(fold_folder, fold_chunk_name), **patchlets)
+            np.savez(os.path.join(fold_folder, chunk_full), **patchlets)
 
 
 def k_folds() -> None:
@@ -58,16 +59,21 @@ def k_folds() -> None:
     Returns:
         None
     """
+
+    LOGGER.info(f'Cleaning output directory {KFOLD_FOLDER}')
+    KFOLD_FOLDER.mkdir(parents=True, exist_ok=True)
+    for item in KFOLD_FOLDER.iterdir():
+        if item.is_dir() and item.name.startswith('fold_'):
+            shutil.rmtree(item)
+
     LOGGER.info(f'Read metadata file {NORMALIZED_METADATA_PATH}')
     df = pd.read_csv(NORMALIZED_METADATA_PATH)
     eops = df.eopatch.unique()
 
     LOGGER.info('Assign folds to eopatches')
-    # Randomly assign folds to patchlets
-    rng = default_rng()
-    fold = np.array_split(rng.permutation(eops), NUM_FOLDS)
-    eopatch_to_fold_map = {eop: fold_idx + 1 for fold_idx,
-                           fold_eops in enumerate(fold) for eop in fold_eops}
+    np.random.seed()
+    fold = np.random.randint(1, high=NUM_FOLDS + 1, size=len(eops))
+    eopatch_to_fold_map = dict(zip(eops, fold))
     df['fold'] = df['eopatch'].apply(lambda x: eopatch_to_fold_map[x])
 
     for nf in range(NUM_FOLDS):

@@ -16,7 +16,7 @@ LOGGER = logging.getLogger(__name__)
 
 # Define paths
 NIVA_PROJECT_DATA_ROOT = os.getenv('NIVA_PROJECT_DATA_ROOT')
-PATCHLETS_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/patchlets/')
+PATCHLETS_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/eopatches/')
 NPZ_FILES_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/npz_files/')
 METADATA_PATH = Path(f'{NIVA_PROJECT_DATA_ROOT}/patchlets_dataframe.csv')
 
@@ -189,14 +189,14 @@ def patchlets_to_npz_files():
     LOGGER.info(f'Cleaning output directory {NPZ_FILES_DIR}')
     NPZ_FILES_DIR.mkdir(parents=True, exist_ok=True)
     for item in NPZ_FILES_DIR.iterdir():
-        if item.is_dir() and item.name.startswith('patchlet_'):
+        if item.is_dir() and item.name.startswith('eopatch_'):
             shutil.rmtree(item)
 
     # Compute chunks
     chunk_size = len(patchlet_paths) // NPZ_NB_CHUNKS
     lost = len(patchlet_paths) % NPZ_NB_CHUNKS
     chunks = [patchlet_paths[i:i + chunk_size]
-              for i in range(0, len(patchlet_paths), chunk_size)][:-1]
+              for i in range(0, len(patchlet_paths) - lost, chunk_size)]
 
     LOGGER.info(
         f'Processing {len(patchlet_paths)} patchlets in {len(chunks)} chunks '
