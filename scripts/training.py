@@ -34,7 +34,7 @@ def get_dataset(npz_folder, metadata_path, fold, augment,
                 y_boundary='y_boundary', y_distance='y_distance')
 
     dataset = npz_dir_dataset(os.path.join(npz_folder, f'fold_{fold}'), data,
-                              metadata_path=metadata_path, old=fold, randomize=randomize,
+                              metadata_path=metadata_path, fold=fold, randomize=randomize,
                               num_parallel=num_parallel)
 
     normalizer = NORMALIZER["to_medianstd"]
