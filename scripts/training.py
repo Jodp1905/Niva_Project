@@ -34,7 +34,7 @@ def get_dataset(npz_folder, metadata_path, fold, augment,
                 y_boundary='y_boundary', y_distance='y_distance')
 
     dataset = npz_dir_dataset(os.path.join(npz_folder, f'fold_{fold}'), data,
-                              metadata_path=metadata_path, old=fold, randomize=randomize,
+                              metadata_path=metadata_path, fold=fold, randomize=randomize,
                               num_parallel=num_parallel)
 
     normalizer = NORMALIZER["to_medianstd"]
@@ -102,6 +102,8 @@ def train_k_folds(npz_folder, metadata_path, model_folder, chkpt_folder, input_s
     if wandb_id is not None:
         os.system(f'wandb login {wandb_id}')
 
+    strategy = tf.distribute.MirroredStrategy()
+    LOGGER.info(f'Number of devices: {strategy.num_replicas_in_sync}')
     LOGGER.info('Create K TF datasets')
     ds_folds = [get_dataset(npz_folder,
                             metadata_path,
@@ -133,12 +135,12 @@ def train_k_folds(npz_folder, metadata_path, model_folder, chkpt_folder, input_s
         ds_val = ds_folds[fold_val].batch(batch_size)
         ds_train = ds_train.batch(batch_size).repeat()
 
-        model = initialise_model(
-            input_shape, model_config, chkpt_folder=chkpt_folder)
-        model_path, callbacks = initialise_callbacks(
-            model_folder, model_name, left_out_fold, model_config)
-
-        LOGGER.info(f'\tTraining model, writing to {model_path}')
+        with strategy.scope():
+            model = initialise_model(
+                input_shape, model_config, chkpt_folder=chkpt_folder)
+            model_path, callbacks = initialise_callbacks(
+                model_folder, model_name, left_out_fold, model_config)
+            LOGGER.info(f'\tTraining model, writing to {model_path}')
 
         model.net.fit(ds_train,
                       validation_data=ds_val,
