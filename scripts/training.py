@@ -20,32 +20,36 @@ from tf_data_utils import (
     Unpack, ToFloat32, augment_data, FillNaN, OneMinusEncoding, LabelsToDict)
 
 
-stdout_handler = logging.StreamHandler(sys.stdout)
-handlers = [stdout_handler]
-
-logging.basicConfig(
-    level=logging.INFO, format="[%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s", handlers=handlers
-)
+# Configure logging
+logging.basicConfig(level=logging.INFO)
 LOGGER = logging.getLogger(__name__)
 
 NORMALIZER = dict(to_medianstd=partial(normalize_meanstd, subtract='median'))
 
-def get_dataset(npz_folder, metadata_path, fold, augment, augmentations_features, augmentations_label, num_parallel, randomize=True):
 
-    data = dict(X='features', y_extent='y_extent', y_boundary='y_boundary', y_distance='y_distance')
+def get_dataset(npz_folder, metadata_path, fold, augment,
+                augmentations_features, augmentations_label, num_parallel, randomize=True):
 
-    dataset = npz_dir_dataset(os.path.join(npz_folder, f'fold_{fold}'), data, metadata_path=metadata_path,
-                              fold=fold, randomize=randomize, num_parallel=num_parallel)
+    data = dict(X='features', y_extent='y_extent',
+                y_boundary='y_boundary', y_distance='y_distance')
+
+    dataset = npz_dir_dataset(os.path.join(npz_folder, f'fold_{fold}'), data,
+                              metadata_path=metadata_path, old=fold, randomize=randomize,
+                              num_parallel=num_parallel)
 
     normalizer = NORMALIZER["to_medianstd"]
 
-    augmentations = [augment_data(augmentations_features, augmentations_label)] if augment else []
-    dataset_ops = [normalizer, Unpack(), ToFloat32()] + augmentations + [FillNaN(fill_value=-2),
-                                                                         OneMinusEncoding(n_classes=2),
-                                                                         LabelsToDict(["extent", "boundary", "distance"])]
+    augmentations = [augment_data(
+        augmentations_features, augmentations_label)] if augment else []
+    dataset_ops = [normalizer, Unpack(), ToFloat32()] \
+        + augmentations \
+        + [FillNaN(fill_value=-2),
+           OneMinusEncoding(
+            n_classes=2),
+           LabelsToDict(["extent", "boundary", "distance"])]
 
     for dataset_op in dataset_ops:
-       dataset = dataset.map(dataset_op)
+        dataset = dataset.map(dataset_op)
 
     return dataset
 
@@ -58,7 +62,8 @@ def initialise_model(input_shape, model_config, chkpt_folder=None):
         loss={'extent': TanimotoDistanceLoss(from_logits=False),
               'boundary': TanimotoDistanceLoss(from_logits=False),
               'distance': TanimotoDistanceLoss(from_logits=False)},
-        optimizer=tf.keras.optimizers.Adam(learning_rate=model_config['learning_rate']),
+        optimizer=tf.keras.optimizers.Adam(
+            learning_rate=model_config['learning_rate']),
         metrics=[segmentation_metrics['accuracy'](),
                  tf.keras.metrics.MeanIoU(num_classes=2)])
 
@@ -78,8 +83,10 @@ def initialise_callbacks(model_folder, model_name, fold, model_config):
     logs_path = os.path.join(model_path, 'logs')
     checkpoints_path = os.path.join(model_path, 'checkpoints', 'model.ckpt')
 
-    tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=logs_path, update_freq='epoch', profile_batch=0)
-    checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(checkpoints_path, save_best_only=True, save_freq='epoch', save_weights_only=True)
+    tensorboard_callback = tf.keras.callbacks.TensorBoard(
+        log_dir=logs_path, update_freq='epoch', profile_batch=0)
+    checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
+        checkpoints_path, save_best_only=True, save_freq='epoch', save_weights_only=True)
 
     with open(f'{model_path}/model_cfg.json', 'w') as jfile:
         json.dump(model_config, jfile)
@@ -88,13 +95,21 @@ def initialise_callbacks(model_folder, model_name, fold, model_config):
     return model_path, callbacks
 
 
-def train_k_folds(npz_folder, metadata_path, model_folder, chkpt_folder, input_shape, n_classes, 
-                  batch_size, iterations_per_epoch, num_epochs, model_name, n_folds, seed, augmentations_features, augmentations_label, model_config, wandb_id):
+def train_k_folds(npz_folder, metadata_path, model_folder, chkpt_folder, input_shape,
+                  n_classes, batch_size, iterations_per_epoch, num_epochs,
+                  model_name, n_folds, seed, augmentations_features,
+                  augmentations_label, model_config, wandb_id):
     if wandb_id is not None:
         os.system(f'wandb login {wandb_id}')
 
     LOGGER.info('Create K TF datasets')
-    ds_folds = [get_dataset(npz_folder, metadata_path, fold=fold, augment=True, augmentations_features=augmentations_features, augmentations_label=augmentations_label, num_parallel=100)
+    ds_folds = [get_dataset(npz_folder,
+                            metadata_path,
+                            fold=fold,
+                            augment=True,
+                            augmentations_features=augmentations_features,
+                            augmentations_label=augmentations_label,
+                            num_parallel=100)
                 for fold in tqdm(range(1, n_folds + 1))]
 
     folds = list(range(n_folds))
@@ -110,15 +125,18 @@ def train_k_folds(npz_folder, metadata_path, model_folder, chkpt_folder, input_s
 
         fold_val = np.random.choice(training_ids)
         folds_train = [tid for tid in training_ids if tid != fold_val]
-        LOGGER.info(f'\tTrain folds {folds_train}, Val fold: {fold_val}, Test fold: {testing_id[0]}')
+        LOGGER.info(
+            f'\tTrain folds {folds_train}, Val fold: {fold_val}, Test fold: {testing_id[0]}')
 
         ds_folds_train = [ds_folds[tid] for tid in folds_train]
         ds_train = reduce(tf.data.Dataset.concatenate, ds_folds_train)
         ds_val = ds_folds[fold_val].batch(batch_size)
         ds_train = ds_train.batch(batch_size).repeat()
 
-        model = initialise_model(input_shape, model_config, chkpt_folder=chkpt_folder)
-        model_path, callbacks = initialise_callbacks(model_folder, model_name, left_out_fold, model_config)
+        model = initialise_model(
+            input_shape, model_config, chkpt_folder=chkpt_folder)
+        model_path, callbacks = initialise_callbacks(
+            model_folder, model_name, left_out_fold, model_config)
 
         LOGGER.info(f'\tTraining model, writing to {model_path}')
 
@@ -155,7 +173,8 @@ def train_k_folds(npz_folder, metadata_path, model_folder, chkpt_folder, input_s
         LOGGER.info(f'Evaluating model on left-out fold {left_out_fold}')
         model = models[testing_id[0]]
         model.net.evaluate(ds_folds[testing_id[0]].batch(batch_size))
-        LOGGER.info(f'Evaluating average model on left-out fold {left_out_fold}')
+        LOGGER.info(
+            f'Evaluating average model on left-out fold {left_out_fold}')
         avg_model.net.evaluate(ds_folds[testing_id[0]].batch(batch_size))
         LOGGER.info('\n\n')
 
@@ -164,7 +183,8 @@ if __name__ == '__main__':
     # Define paths
     NIVA_PROJECT_DATA_ROOT = os.getenv('NIVA_PROJECT_DATA_ROOT')
     NPZ_FILES_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/npz_files/')
-    METADATA_PATH = Path(f'{NIVA_PROJECT_DATA_ROOT}/patchlets_dataframe_final.csv')
+    METADATA_PATH = Path(
+        f'{NIVA_PROJECT_DATA_ROOT}/patchlets_dataframe_final.csv')
     KFOLD_FOLDER = Path(f'{NIVA_PROJECT_DATA_ROOT}/folds/')
     MODEL_FOLDER = Path(f'{NIVA_PROJECT_DATA_ROOT}/model/')
     CHKPT_FOLDER = None
@@ -177,7 +197,8 @@ if __name__ == '__main__':
     model_name = "resunet-a"
     n_folds = 10
     seed = 42
-    augmentations_features = ["flip_left_right", "flip_up_down", "rotate", "brightness"]
+    augmentations_features = ["flip_left_right",
+                              "flip_up_down", "rotate", "brightness"]
     augmentations_label = ["flip_left_right", "flip_up_down", "rotate"]
 
     model_config = {
@@ -201,5 +222,7 @@ if __name__ == '__main__':
         "class_weights": None
     }
 
-    train_k_folds(KFOLD_FOLDER, METADATA_PATH, MODEL_FOLDER, CHKPT_FOLDER, input_shape, n_classes,
-                  batch_size, iterations_per_epoch, num_epochs, model_name, n_folds, seed, augmentations_features, augmentations_label, model_config, wandb_id)
+    train_k_folds(KFOLD_FOLDER, METADATA_PATH, MODEL_FOLDER, CHKPT_FOLDER,
+                  input_shape, n_classes, batch_size, iterations_per_epoch,
+                  num_epochs, model_name, n_folds, seed, augmentations_features,
+                  augmentations_label, model_config, wandb_id)

@@ -19,42 +19,51 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 
+
 class Unpack(object):
     """ Unpack items of a dictionary to a tuple """
+
     def __call__(self, sample: dict) -> Tuple[tf.Tensor, tf.Tensor]:
         return sample['features'], sample['labels']
-    
-    
+
+
 class ToFloat32(object):
     """ Cast features to float32 """
+
     def __call__(self, feats: tf.Tensor, labels: tf.Tensor) -> Tuple[tf.Tensor, tf.Tensor]:
         feats = tf.cast(feats, tf.float32)
         return feats, labels
-    
+
+
 class OneMinusEncoding(object):
     """ Encodes labels to 1-p, p. Makes sense only for binary labels and for continuous labels in [0, 1] """
+
     def __init__(self, n_classes: int):
         assert n_classes == 2, 'OneMinus works only for "binary" classes. `n_classes` should be 2.'
         self.n_classes = n_classes
-      
+
     def __call__(self, feats: tf.Tensor, labels: tf.Tensor) -> Tuple[tf.Tensor, tf.Tensor]:
         return feats, tf.concat([tf.ones_like(labels) - labels, labels], axis=-1)
-     
+
+
 class FillNaN(object):
     """ Replace NaN values with a given finite value """
+
     def __init__(self, fill_value: float = -2.):
         self.fill_value = fill_value
-        
+
     def __call__(self, feats: tf.Tensor, labels: tf.Tensor) -> Tuple[tf.Tensor, tf.Tensor]:
-        feats = tf.where(tf.math.is_nan(feats), tf.constant(self.fill_value, feats.dtype), feats)
+        feats = tf.where(tf.math.is_nan(feats), tf.constant(
+            self.fill_value, feats.dtype), feats)
         return feats, labels
-    
-    
+
+
 class LabelsToDict(object):
     """ Convert a list of arrays to a dictionary """
+
     def __init__(self, keys: List[str]):
         self.keys = keys
-        
+
     def __call__(self, feats: tf.Tensor, labels: tf.Tensor) -> Tuple[dict, dict]:
         assert len(self.keys) == labels.shape[0]
         labels_dict = {}
@@ -66,7 +75,8 @@ class LabelsToDict(object):
 def normalize_meanstd(ds_keys: dict, subtract: str = 'mean') -> dict:
     """ Help function to normalise the features by the mean and standard deviation """
     assert subtract in ['mean', 'median']
-    feats = tf.math.subtract(tf.cast(ds_keys['features'], tf.float64), ds_keys[f'norm_meanstd_{subtract}'])
+    feats = tf.math.subtract(
+        tf.cast(ds_keys['features'], tf.float64), ds_keys[f'norm_meanstd_{subtract}'])
     feats = tf.math.divide(feats, ds_keys['norm_meanstd_std'])
     ds_keys['features'] = feats
     return ds_keys
@@ -108,10 +118,10 @@ def augment_data(features_augmentations: List[str],
     """
     def _augment_data(data, op_fn):
         return op_fn(data)
-    
+
     def _augment_labels(labels_augmented, oper_op):
-        ys = [] 
-        for i in range(len(labels_augmented)): 
+        ys = []
+        for i in range(len(labels_augmented)):
             ys.append(_augment_data(labels_augmented[i, ...], oper_op))
         return tf.convert_to_tensor(ys, dtype=labels_augmented.dtype)
 
@@ -133,13 +143,14 @@ def augment_data(features_augmentations: List[str],
 
         for op in features_augmentations:
             features = _augment_data(features, operations[op])
-        
+
         for op in labels_augmentation:
             labels = _augment_labels(labels, operations[op])
-                     
+
         return features, labels
 
     return _augment
+
 
 def _construct_norm_arrays(file_path: str, metadata_path: str, fold: int = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """ Return arrays with normalisation factors to be used """
@@ -151,11 +162,15 @@ def _construct_norm_arrays(file_path: str, metadata_path: str, fold: int = None)
     if fold is not None:
         df = df[df.fold == fold]
 
-    perc99 = df[['norm_perc99_b0', 'norm_perc99_b1', 'norm_perc99_b2', 'norm_perc99_b3']].values
-    meanstd_mean = df[['norm_meanstd_mean_b0', 'norm_meanstd_mean_b1', 'norm_meanstd_mean_b2', 'norm_meanstd_mean_b3']].values
-    meanstd_median = df[['norm_meanstd_median_b0', 'norm_meanstd_median_b1', 'norm_meanstd_median_b2', 'norm_meanstd_median_b3']].values
-    meanstd_std = df[['norm_meanstd_std_b0', 'norm_meanstd_std_b1', 'norm_meanstd_std_b2', 'norm_meanstd_std_b3']].values
-    
+    perc99 = df[['norm_perc99_b0', 'norm_perc99_b1',
+                 'norm_perc99_b2', 'norm_perc99_b3']].values
+    meanstd_mean = df[['norm_meanstd_mean_b0', 'norm_meanstd_mean_b1',
+                       'norm_meanstd_mean_b2', 'norm_meanstd_mean_b3']].values
+    meanstd_median = df[['norm_meanstd_median_b0', 'norm_meanstd_median_b1',
+                         'norm_meanstd_median_b2', 'norm_meanstd_median_b3']].values
+    meanstd_std = df[['norm_meanstd_std_b0', 'norm_meanstd_std_b1',
+                      'norm_meanstd_std_b2', 'norm_meanstd_std_b3']].values
+
     return perc99, meanstd_mean, meanstd_median, meanstd_std
 
 
@@ -178,12 +193,12 @@ def npz_dir_dataset(file_dir_or_list: Union[str, List[str]], features: dict, met
     """
 
     files = file_dir_or_list
-    
+
     # If dir, then list files
     if isinstance(file_dir_or_list, str):
         dir_list = os.listdir(file_dir_or_list)
         files = [os.path.join(file_dir_or_list, f) for f in dir_list]
-        
+
     fields = list(features.keys())
 
     # Read one file for shape info
@@ -191,9 +206,10 @@ def npz_dir_dataset(file_dir_or_list: Union[str, List[str]], features: dict, met
     data = np.load(file)
     np_arrays = [data[f] for f in fields]
 
-    # Append norm arrays 
-    perc99, meanstd_mean, meanstd_median, meanstd_std = _construct_norm_arrays(file, metadata_path, fold)
-    
+    # Append norm arrays
+    perc99, meanstd_mean, meanstd_median, meanstd_std = _construct_norm_arrays(
+        file, metadata_path, fold)
+
     np_arrays.append(perc99)
     np_arrays.append(meanstd_mean)
     np_arrays.append(meanstd_median)
@@ -201,17 +217,19 @@ def npz_dir_dataset(file_dir_or_list: Union[str, List[str]], features: dict, met
 
     # Read shape and type info
     # TODO check the types
-    types = (tf.uint16, tf.float32, tf.float32, tf.float32, tf.float64, tf.float64, tf.float64, tf.float64)
+    types = (tf.uint16, tf.float32, tf.float32, tf.float32,
+             tf.float64, tf.float64, tf.float64, tf.float64)
     shapes = tuple(arr.shape[1:] for arr in np_arrays)
 
     # Create datasets
-    datasets = [_npz_file_lazy_dataset(f, fields, types, shapes, metadata_path, fold=fold) for f in files]
+    datasets = [_npz_file_lazy_dataset(
+        f, fields, types, shapes, metadata_path, fold=fold) for f in files]
     ds = tf.data.Dataset.from_tensor_slices(datasets)
 
     # Shuffle files and interleave multiple files in parallel
     if randomize:
         ds = ds.shuffle(shuffle_size)
-    
+
     ds = ds.interleave(lambda x: x, cycle_length=num_parallel)
 
     return ds
@@ -235,14 +253,15 @@ def _npz_file_lazy_dataset(file_path: str, fields: List[str], types: List[np.dty
     def _generator():
         data = np.load(file_path)
         np_arrays = [data[f] for f in fields]
-        
-        perc99, meanstd_mean, meanstd_median, meanstd_std = _construct_norm_arrays(file_path, metadata_path, fold)
+
+        perc99, meanstd_mean, meanstd_median, meanstd_std = _construct_norm_arrays(
+            file_path, metadata_path, fold)
 
         np_arrays.append(perc99)
         np_arrays.append(meanstd_mean)
         np_arrays.append(meanstd_median)
         np_arrays.append(meanstd_std)
-        
+
         # Check that arrays match in the first dimension
         n_samples = np_arrays[0].shape[0]
         assert all(n_samples == arr.shape[0] for arr in np_arrays)
@@ -254,9 +273,9 @@ def _npz_file_lazy_dataset(file_path: str, fields: List[str], types: List[np.dty
 
     # Converts a database of tuples to database of dicts
     def _to_dict(*features):
-        return {'features': features[0], 
-                'labels': [features[1], features[2], features[3]], 
-                'norm_perc99': features[4], 
+        return {'features': features[0],
+                'labels': [features[1], features[2], features[3]],
+                'norm_perc99': features[4],
                 'norm_meanstd_mean': features[5],
                 'norm_meanstd_median': features[6],
                 'norm_meanstd_std': features[7]}
