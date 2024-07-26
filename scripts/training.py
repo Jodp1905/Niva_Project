@@ -28,8 +28,9 @@ NORMALIZER = dict(to_medianstd=partial(normalize_meanstd, subtract='median'))
 
 
 def stop_profiler(*args):
-    tf.profiler.experimental.stop()
-    LOGGER.info("Profiler stopped due to termination signal.")
+    if TF_PROFILING:
+        tf.profiler.experimental.stop()
+        LOGGER.info("Profiler stopped due to termination signal.")
     exit(0)
 
 
@@ -158,19 +159,19 @@ def train_k_folds(npz_folder, metadata_path, model_folder, chkpt_folder, input_s
             LOGGER.info(f'\tTraining model, writing to {model_path}')
             profiler_logdir = f'{model_path}/profiler'
 
-            try:
-                if TF_PROFILING:
-                    tf.profiler.experimental.start(profiler_logdir)
-                model.net.fit(ds_train,
-                              validation_data=ds_val,
-                              epochs=num_epochs,
-                              steps_per_epoch=iterations_per_epoch,
-                              callbacks=callbacks)
-            except Exception as e:
-                LOGGER.error(f"Exception during training: {e}")
-            finally:
-                if TF_PROFILING:
-                    tf.profiler.experimental.stop()
+        try:
+            if TF_PROFILING:
+                tf.profiler.experimental.start(profiler_logdir)
+            model.net.fit(ds_train,
+                          validation_data=ds_val,
+                          epochs=num_epochs,
+                          steps_per_epoch=iterations_per_epoch,
+                          callbacks=callbacks)
+        except Exception as e:
+            LOGGER.error(f"Exception during training: {e}")
+        finally:
+            if TF_PROFILING:
+                tf.profiler.experimental.stop()
 
             models.append(model)
             model_paths.append(model_path)
