@@ -35,21 +35,18 @@ TIMEZONE = pytz.timezone('Europe/Bologna')
 
 
 class CustomTensorBoard(tf.keras.callbacks.TensorBoard):
-    def __init__(self, log_dir, update_freq=UPDATE_FREQ, profile_batch=PROFILE_BATCH):
-        super().__init__(log_dir=log_dir, update_freq=update_freq,
-                         profile_batch=profile_batch)
+    def __init__(self, log_dir, update_freq='epoch', profile_batch=0):
+        super().__init__(log_dir=log_dir, update_freq=update_freq, profile_batch=profile_batch)
         self.profile_batch = profile_batch
         self.log_dir = log_dir
         self.tf_profiling = TF_PROFILING
 
-    def on_epoch_begin(self, epoch, logs=None):
         if self.tf_profiling:
-            profiler_logdir = f"{self.log_dir}/profiler_{datetime.now(TIMEZONE).strftime('%Y%m%d-%H%M%S')}"
+            profiler_logdir = f"{self.log_dir}/profiler"
             tf.profiler.experimental.start(profiler_logdir)
-        super().on_epoch_begin(epoch, logs)
 
-    def on_epoch_end(self, epoch, logs=None):
-        super().on_epoch_end(epoch, logs)
+    def on_train_end(self, logs=None):
+        super().on_train_end(logs)
         if self.tf_profiling:
             tf.profiler.experimental.stop()
         self._writer.flush()
