@@ -6,9 +6,8 @@ import signal
 from datetime import datetime
 from functools import reduce, partial
 from pathlib import Path
-
-import numpy as np
 import tensorflow as tf
+import numpy as np
 from tqdm.auto import tqdm
 
 from eoflow.models.segmentation_base import segmentation_metrics
@@ -27,7 +26,10 @@ LOGGER = logging.getLogger(__name__)
 
 NORMALIZER = dict(to_medianstd=partial(normalize_meanstd, subtract='median'))
 
-# Signal handling for graceful termination
+# CPU's settings
+num_threads = os.cpu_count()
+tf.config.threading.set_intra_op_parallelism_threads(num_threads)
+tf.config.threading.set_inter_op_parallelism_threads(num_threads)
 
 
 def stop_profiler(*args):
@@ -36,8 +38,12 @@ def stop_profiler(*args):
     exit(0)
 
 
+# Register signal handlers to stop the profiler on termination
 signal.signal(signal.SIGINT, stop_profiler)
 signal.signal(signal.SIGTERM, stop_profiler)
+
+TF_PROFILING = False
+AUTOTUNE = tf.data.experimental.AUTOTUNE
 
 
 def get_dataset(npz_folder, metadata_path, fold, augment,
@@ -62,8 +68,8 @@ def get_dataset(npz_folder, metadata_path, fold, augment,
            LabelsToDict(["extent", "boundary", "distance"])]
 
     for dataset_op in dataset_ops:
-        dataset = dataset.map(dataset_op)
-
+        dataset = dataset.map(dataset_op, num_parallel_calls=AUTOTUNE)
+    dataset = dataset.prefetch(buffer_size=AUTOTUNE)
     return dataset
 
 
@@ -122,6 +128,7 @@ def train_k_folds(npz_folder, metadata_path, model_folder, chkpt_folder, input_s
                             augment=True,
                             augmentations_features=augmentations_features,
                             augmentations_label=augmentations_label,
+                            # TODO is num_parallel set to an optimal value?
                             num_parallel=100)
                 for fold in range(1, n_folds + 1)]
 
@@ -131,6 +138,8 @@ def train_k_folds(npz_folder, metadata_path, model_folder, chkpt_folder, input_s
 
     models = []
     model_paths = []
+
+    strategy = tf.distribute.MirroredStrategy()
 
     for training_ids, testing_id in folds_ids_list:
         left_out_fold = testing_id[0] + 1
@@ -146,27 +155,30 @@ def train_k_folds(npz_folder, metadata_path, model_folder, chkpt_folder, input_s
         ds_val = ds_folds[fold_val].batch(batch_size)
         ds_train = ds_train.batch(batch_size).repeat()
 
-        model = initialise_model(
-            input_shape, model_config, chkpt_folder=chkpt_folder)
-        model_path, callbacks = initialise_callbacks(
-            model_folder, model_name, left_out_fold, model_config)
-        LOGGER.info(f'\tTraining model, writing to {model_path}')
-        profiler_logdir = f'{model_path}/profiler'
+        with strategy.scope():
+            model = initialise_model(
+                input_shape, model_config, chkpt_folder=chkpt_folder)
+            model_path, callbacks = initialise_callbacks(
+                model_folder, model_name, left_out_fold, model_config)
+            LOGGER.info(f'\tTraining model, writing to {model_path}')
+            profiler_logdir = f'{model_path}/profiler'
 
-        try:
-            tf.profiler.experimental.start(profiler_logdir)
-            model.net.fit(ds_train,
-                          validation_data=ds_val,
-                          epochs=num_epochs,
-                          steps_per_epoch=iterations_per_epoch,
-                          callbacks=callbacks)
-        except Exception as e:
-            LOGGER.error(f"Exception during training: {e}")
-        finally:
-            tf.profiler.experimental.stop()
+            try:
+                if TF_PROFILING:
+                    tf.profiler.experimental.start(profiler_logdir)
+                model.net.fit(ds_train,
+                              validation_data=ds_val,
+                              epochs=num_epochs,
+                              steps_per_epoch=iterations_per_epoch,
+                              callbacks=callbacks)
+            except Exception as e:
+                LOGGER.error(f"Exception during training: {e}")
+            finally:
+                if TF_PROFILING:
+                    tf.profiler.experimental.stop()
 
-        models.append(model)
-        model_paths.append(model_path)
+            models.append(model)
+            model_paths.append(model_path)
 
     LOGGER.info('Create average model')
     weights = [model.net.get_weights() for model in models]
