@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import logging
+import signal
 from datetime import datetime
 from functools import reduce, partial
 from pathlib import Path
@@ -25,6 +26,18 @@ logging.basicConfig(level=logging.INFO)
 LOGGER = logging.getLogger(__name__)
 
 NORMALIZER = dict(to_medianstd=partial(normalize_meanstd, subtract='median'))
+
+# Signal handling for graceful termination
+
+
+def stop_profiler(*args):
+    tf.profiler.experimental.stop()
+    LOGGER.info("Profiler stopped due to termination signal.")
+    exit(0)
+
+
+signal.signal(signal.SIGINT, stop_profiler)
+signal.signal(signal.SIGTERM, stop_profiler)
 
 
 def get_dataset(npz_folder, metadata_path, fold, augment,
@@ -110,7 +123,7 @@ def train_k_folds(npz_folder, metadata_path, model_folder, chkpt_folder, input_s
                             augmentations_features=augmentations_features,
                             augmentations_label=augmentations_label,
                             num_parallel=100)
-                for fold in tqdm(range(1, n_folds + 1))]
+                for fold in range(1, n_folds + 1)]
 
     folds = list(range(n_folds))
     folds_ids_list = [(folds[:nf] + folds[1 + nf:], [nf]) for nf in folds]
@@ -137,14 +150,20 @@ def train_k_folds(npz_folder, metadata_path, model_folder, chkpt_folder, input_s
             input_shape, model_config, chkpt_folder=chkpt_folder)
         model_path, callbacks = initialise_callbacks(
             model_folder, model_name, left_out_fold, model_config)
-
         LOGGER.info(f'\tTraining model, writing to {model_path}')
+        profiler_logdir = f'{model_path}/profiler'
 
-        model.net.fit(ds_train,
-                      validation_data=ds_val,
-                      epochs=num_epochs,
-                      steps_per_epoch=iterations_per_epoch,
-                      callbacks=callbacks)
+        try:
+            tf.profiler.experimental.start(profiler_logdir)
+            model.net.fit(ds_train,
+                          validation_data=ds_val,
+                          epochs=num_epochs,
+                          steps_per_epoch=iterations_per_epoch,
+                          callbacks=callbacks)
+        except Exception as e:
+            LOGGER.error(f"Exception during training: {e}")
+        finally:
+            tf.profiler.experimental.stop()
 
         models.append(model)
         model_paths.append(model_path)
