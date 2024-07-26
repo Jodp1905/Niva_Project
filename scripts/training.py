@@ -9,6 +9,7 @@ from pathlib import Path
 import tensorflow as tf
 import numpy as np
 from tqdm.auto import tqdm
+import pytz
 
 from eoflow.models.segmentation_base import segmentation_metrics
 from eoflow.models.losses import TanimotoDistanceLoss
@@ -30,6 +31,7 @@ TF_PROFILING = False
 AUTOTUNE = tf.data.experimental.AUTOTUNE
 UPDATE_FREQ = 'epoch'
 PROFILE_BATCH = 0
+TIMEZONE = pytz.timezone('Europe/Bologna')
 
 
 class CustomTensorBoard(tf.keras.callbacks.TensorBoard):
@@ -42,7 +44,7 @@ class CustomTensorBoard(tf.keras.callbacks.TensorBoard):
 
     def on_epoch_begin(self, epoch, logs=None):
         if self.tf_profiling:
-            profiler_logdir = f"{self.log_dir}/profiler_{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+            profiler_logdir = f"{self.log_dir}/profiler_{datetime.now(TIMEZONE).strftime('%Y%m%d-%H%M%S')}"
             tf.profiler.experimental.start(profiler_logdir)
         super().on_epoch_begin(epoch, logs)
 
@@ -100,7 +102,8 @@ def initialise_model(input_shape, model_config, chkpt_folder=None):
 
 
 def initialise_callbacks(model_folder, model_name, fold, model_config):
-    now = datetime.now().isoformat(sep='-', timespec='seconds').replace(':', '-')
+    now = datetime.now(TIMEZONE).isoformat(
+        sep='-', timespec='seconds').replace(':', '-')
     model_path = f'{model_folder}/{model_name}_fold-{fold}_{now}'
 
     os.makedirs(model_path, exist_ok=True)
@@ -189,7 +192,8 @@ def train_k_folds(npz_folder, metadata_path, model_folder, chkpt_folder, input_s
     avg_model = initialise_model(input_shape, model_config)
     avg_model.net.set_weights(avg_weights)
 
-    now = datetime.now().isoformat(sep='-', timespec='seconds').replace(':', '-')
+    now = datetime.now(TIMEZONE).isoformat(
+        sep='-', timespec='seconds').replace(':', '-')
     model_path = f'{model_folder}/{model_name}_avg_{now}'
 
     LOGGER.info('Save average model to local path')
