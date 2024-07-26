@@ -24,22 +24,33 @@ from tf_data_utils import (
 logging.basicConfig(level=logging.INFO)
 LOGGER = logging.getLogger(__name__)
 
+# Script parameters
 NORMALIZER = dict(to_medianstd=partial(normalize_meanstd, subtract='median'))
-
-
-def stop_profiler(*args):
-    if TF_PROFILING:
-        tf.profiler.experimental.stop()
-        LOGGER.info("Profiler stopped due to termination signal.")
-    exit(0)
-
-
-# Register signal handlers to stop the profiler on termination
-signal.signal(signal.SIGINT, stop_profiler)
-signal.signal(signal.SIGTERM, stop_profiler)
-
 TF_PROFILING = False
 AUTOTUNE = tf.data.experimental.AUTOTUNE
+UPDATE_FREQ = 'epoch'
+PROFILE_BATCH = 0
+
+
+class CustomTensorBoard(tf.keras.callbacks.TensorBoard):
+    def __init__(self, log_dir, update_freq=UPDATE_FREQ, profile_batch=PROFILE_BATCH):
+        super().__init__(log_dir=log_dir, update_freq=update_freq,
+                         profile_batch=profile_batch)
+        self.profile_batch = profile_batch
+        self.log_dir = log_dir
+        self.tf_profiling = TF_PROFILING
+
+    def on_epoch_begin(self, epoch, logs=None):
+        if self.tf_profiling:
+            profiler_logdir = f"{self.log_dir}/profiler_{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+            tf.profiler.experimental.start(profiler_logdir)
+        super().on_epoch_begin(epoch, logs)
+
+    def on_epoch_end(self, epoch, logs=None):
+        super().on_epoch_end(epoch, logs)
+        if self.tf_profiling:
+            tf.profiler.experimental.stop()
+        self._writer.flush()
 
 
 def get_dataset(npz_folder, metadata_path, fold, augment,
@@ -92,13 +103,12 @@ def initialise_callbacks(model_folder, model_name, fold, model_config):
     now = datetime.now().isoformat(sep='-', timespec='seconds').replace(':', '-')
     model_path = f'{model_folder}/{model_name}_fold-{fold}_{now}'
 
-    if not os.path.exists(model_path):
-        os.makedirs(model_path)
+    os.makedirs(model_path, exist_ok=True)
 
     logs_path = os.path.join(model_path, 'logs')
     checkpoints_path = os.path.join(model_path, 'checkpoints', 'model.ckpt')
 
-    tensorboard_callback = tf.keras.callbacks.TensorBoard(
+    tensorboard_callback = CustomTensorBoard(
         log_dir=logs_path, update_freq='epoch', profile_batch=0)
     checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
         checkpoints_path, save_best_only=True, save_freq='epoch', save_weights_only=True)
@@ -114,6 +124,7 @@ def train_k_folds(npz_folder, metadata_path, model_folder, chkpt_folder, input_s
                   n_classes, batch_size, iterations_per_epoch, num_epochs,
                   model_name, n_folds, seed, augmentations_features,
                   augmentations_label, model_config, wandb_id):
+
     if wandb_id is not None:
         os.system(f'wandb login {wandb_id}')
 
@@ -157,24 +168,18 @@ def train_k_folds(npz_folder, metadata_path, model_folder, chkpt_folder, input_s
             model_path, callbacks = initialise_callbacks(
                 model_folder, model_name, left_out_fold, model_config)
             LOGGER.info(f'\tTraining model, writing to {model_path}')
-            profiler_logdir = f'{model_path}/profiler'
-
-        try:
-            if TF_PROFILING:
-                tf.profiler.experimental.start(profiler_logdir)
-            model.net.fit(ds_train,
-                          validation_data=ds_val,
-                          epochs=num_epochs,
-                          steps_per_epoch=iterations_per_epoch,
-                          callbacks=callbacks)
-        except Exception as e:
-            LOGGER.error(f"Exception during training: {e}")
-        finally:
-            if TF_PROFILING:
-                tf.profiler.experimental.stop()
-
+            try:
+                model.net.fit(ds_train,
+                              validation_data=ds_val,
+                              epochs=num_epochs,
+                              steps_per_epoch=iterations_per_epoch,
+                              callbacks=callbacks)
+            except Exception as e:
+                LOGGER.error(f"Exception during training: {e}")
             models.append(model)
             model_paths.append(model_path)
+            LOGGER.info(
+                f'\tModel trained and saved to {model_path} for left out fold {left_out_fold}')
 
     LOGGER.info('Create average model')
     weights = [model.net.get_weights() for model in models]
@@ -219,8 +224,8 @@ if __name__ == '__main__':
     input_shape = [256, 256, 4]
     n_classes = 2
     batch_size = 8
-    iterations_per_epoch = 50
-    num_epochs = 3
+    iterations_per_epoch = 30
+    num_epochs = 2
     model_name = "resunet-a"
     n_folds = 10
     seed = 42
