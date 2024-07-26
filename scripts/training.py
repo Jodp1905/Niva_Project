@@ -26,11 +26,6 @@ LOGGER = logging.getLogger(__name__)
 
 NORMALIZER = dict(to_medianstd=partial(normalize_meanstd, subtract='median'))
 
-# CPU's settings
-num_threads = os.cpu_count()
-tf.config.threading.set_intra_op_parallelism_threads(num_threads)
-tf.config.threading.set_inter_op_parallelism_threads(num_threads)
-
 
 def stop_profiler(*args):
     tf.profiler.experimental.stop()
@@ -130,7 +125,7 @@ def train_k_folds(npz_folder, metadata_path, model_folder, chkpt_folder, input_s
                             augmentations_label=augmentations_label,
                             # TODO is num_parallel set to an optimal value?
                             num_parallel=100)
-                for fold in range(1, n_folds + 1)]
+                for fold in tqdm(range(1, n_folds + 1))]
 
     folds = list(range(n_folds))
     folds_ids_list = [(folds[:nf] + folds[1 + nf:], [nf]) for nf in folds]
@@ -223,8 +218,8 @@ if __name__ == '__main__':
     input_shape = [256, 256, 4]
     n_classes = 2
     batch_size = 8
-    iterations_per_epoch = 1
-    num_epochs = 1
+    iterations_per_epoch = 50
+    num_epochs = 3
     model_name = "resunet-a"
     n_folds = 10
     seed = 42
