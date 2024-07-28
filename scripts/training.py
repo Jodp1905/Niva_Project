@@ -31,7 +31,7 @@ TF_PROFILING = False
 AUTOTUNE = tf.data.experimental.AUTOTUNE
 UPDATE_FREQ = 'epoch'
 PROFILE_BATCH = 0
-TIMEZONE = pytz.timezone('Europe/Bologna')
+TIMEZONE = pytz.timezone('Europe/Paris')
 
 
 class CustomTensorBoard(tf.keras.callbacks.TensorBoard):
