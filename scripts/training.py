@@ -1,8 +1,6 @@
 import os
-import sys
 import json
 import logging
-import signal
 from datetime import datetime
 from functools import reduce, partial
 from pathlib import Path
@@ -27,7 +25,7 @@ LOGGER = logging.getLogger(__name__)
 
 # Script parameters
 NORMALIZER = dict(to_medianstd=partial(normalize_meanstd, subtract='median'))
-TF_PROFILING = False
+TF_PROFILING = True
 AUTOTUNE = tf.data.experimental.AUTOTUNE
 UPDATE_FREQ = 'epoch'
 PROFILE_BATCH = 0
@@ -35,21 +33,21 @@ TIMEZONE = pytz.timezone('Europe/Paris')
 
 
 class CustomTensorBoard(tf.keras.callbacks.TensorBoard):
-    def __init__(self, log_dir, update_freq='epoch', profile_batch=0):
-        super().__init__(log_dir=log_dir, update_freq=update_freq, profile_batch=profile_batch)
-        self.profile_batch = profile_batch
+    def __init__(self, log_dir, **kwargs):
+        super().__init__(log_dir=log_dir, **kwargs)
         self.log_dir = log_dir
-        self.tf_profiling = TF_PROFILING
 
-        if self.tf_profiling:
-            profiler_logdir = f"{self.log_dir}/profiler"
-            tf.profiler.experimental.start(profiler_logdir)
+    def on_train_begin(self, logs=None):
+        super().on_train_begin(logs)
+        if TF_PROFILING:
+            tf.profiler.experimental.start(self.log_dir)
+            LOGGER.info(f"Profiler started at {self.log_dir}")
 
     def on_train_end(self, logs=None):
         super().on_train_end(logs)
-        if self.tf_profiling:
+        if TF_PROFILING:
             tf.profiler.experimental.stop()
-        self._writer.flush()
+            LOGGER.info(f"Profiler stopped and data saved to {self.log_dir}")
 
 
 def get_dataset(npz_folder, metadata_path, fold, augment,
@@ -147,6 +145,10 @@ def train_k_folds(npz_folder, metadata_path, model_folder, chkpt_folder, input_s
     model_paths = []
 
     strategy = tf.distribute.MirroredStrategy()
+    num_workers = strategy.num_replicas_in_sync
+    devices = strategy.extended.worker_devices
+    LOGGER.info(f"Number of devices (workers): {num_workers}"
+                f"\nDevices: {devices}")
 
     for training_ids, testing_id in folds_ids_list:
         left_out_fold = testing_id[0] + 1
