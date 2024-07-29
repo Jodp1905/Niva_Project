@@ -25,7 +25,7 @@ FINAL_METADATA_PATH = Path(
 KFOLD_FOLDER = Path(f'{NIVA_PROJECT_DATA_ROOT}/folds/')
 
 # Parameters
-NUM_FOLDS = os.getenv('NUM_FOLDS', 10)
+NUM_FOLDS = int(os.getenv('NUM_FOLDS', 10))
 
 
 def fold_split(chunk: str, df: pd.DataFrame, npz_folder: str, folds_folder: str, n_folds: int):
