@@ -32,7 +32,7 @@ FINAL_METADATA_PATH = Path(
 KFOLD_FOLDER = Path(f'{NIVA_PROJECT_DATA_ROOT}/folds/')
 
 # Parameters
-NUM_FOLDS = os.getenv('NUM_FOLDS', 10)
+NUM_FOLDS = int(os.getenv('NUM_FOLDS', 10))
 
 
 def fold_split(chunk: str, df: pd.DataFrame, npz_folder: str, folds_folder: str, n_folds: int):
@@ -102,12 +102,12 @@ def k_folds() -> None:
             for npz_file in npz_files:
                 future = executor.submit(partial_fn, npz_file)
                 futures.append(future)
-                pbar.update(1)
             for future in as_completed(futures):
                 try:
                     future.result()
                 except Exception as e:
                     LOGGER.error(f'A task failed: {e}')
+                pbar.update(1)
 
     LOGGER.info('Saving metadata file')
     df.to_csv(FINAL_METADATA_PATH, index=False)

@@ -235,7 +235,7 @@ def npz_dir_dataset(file_dir_or_list: Union[str, List[str]], features: dict, met
     return ds
 
 
-def _npz_file_lazy_dataset(file_path: str, fields: List[str], types: List[np.dtype], shapes: List[np.int],
+def _npz_file_lazy_dataset(file_path: str, fields: List[str], types: List[np.dtype], shapes: List[np.int32],
                            metadata_path: str, fold: int = None) -> tf.data.Dataset:
     """ Creates a lazy tf.data Dataset from a numpy file.
 
