@@ -148,13 +148,12 @@ def initialise_model(input_shape, model_config, chkpt_folder=None):
     return model
 
 
-def initialise_callbacks(model_folder, model_name, fold, model_config):
+def initialise_callbacks(model_folder, fold, model_config):
     """
     Initialize callbacks for model training.
 
     Args:
         model_folder (str): The folder path where the model will be saved.
-        model_name (str): The name of the model.
         fold (int): The fold number.
         model_config (dict): The model configuration.
 
@@ -239,7 +238,7 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
             model = initialise_model(
                 input_shape, model_config, chkpt_folder=chkpt_folder)
             model_path, callbacks = initialise_callbacks(
-                model_folder, model_name, left_out_fold, model_config)
+                model_folder, left_out_fold, model_config)
             LOGGER.info(f'\tTraining model, writing to {model_path}')
             try:
                 model.net.fit(ds_train,
