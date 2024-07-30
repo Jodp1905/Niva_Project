@@ -2,6 +2,7 @@ import warnings
 import logging
 import fs.move  # required by eopatch.save
 import os
+import sys
 from datetime import datetime, timezone
 from xarray import DataArray, Dataset, open_dataset
 from eolearn.core import EOPatch, FeatureType, OverwritePermission
@@ -16,8 +17,15 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm import tqdm
 import numpy as np
 
+from filter import LogFileFilter
+
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+stdout_handler = logging.StreamHandler(sys.stdout)
+stdout_handler.addFilter(LogFileFilter())
+handlers = [stdout_handler]
+logging.basicConfig(
+    level=logging.INFO, format="[%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s", handlers=handlers
+)
 LOGGER = logging.getLogger(__name__)
 
 # Suppress DeprecationWarning

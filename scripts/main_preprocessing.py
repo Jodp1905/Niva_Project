@@ -6,8 +6,19 @@ from create_kfold import k_folds
 from os import getenv
 import logging
 import time
+import sys
 
-logging.basicConfig(level=logging.INFO)
+from filter import LogFileFilter
+
+# Configure logging
+stdout_handler = logging.StreamHandler(sys.stdout)
+stdout_handler.addFilter(LogFileFilter())
+handlers = [stdout_handler]
+logging.basicConfig(
+    level=logging.INFO, format="[%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s", handlers=handlers
+)
+LOGGER = logging.getLogger(__name__)
+
 NIVA_PROJECT_DATA_ROOT = getenv('NIVA_PROJECT_DATA_ROOT')
 
 

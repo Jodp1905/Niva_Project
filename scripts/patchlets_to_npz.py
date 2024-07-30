@@ -1,5 +1,6 @@
 import os
 import logging
+import sys
 import numpy as np
 import pandas as pd
 from typing import Tuple, List
@@ -10,8 +11,15 @@ from tqdm import tqdm
 import shutil
 import random
 
+from filter import LogFileFilter
+
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+stdout_handler = logging.StreamHandler(sys.stdout)
+stdout_handler.addFilter(LogFileFilter())
+handlers = [stdout_handler]
+logging.basicConfig(
+    level=logging.INFO, format="[%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s", handlers=handlers
+)
 LOGGER = logging.getLogger(__name__)
 
 # Define paths

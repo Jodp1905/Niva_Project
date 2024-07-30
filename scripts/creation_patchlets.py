@@ -9,9 +9,17 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm import tqdm
 import warnings
 import shutil
+import sys
+
+from filter import LogFileFilter
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+stdout_handler = logging.StreamHandler(sys.stdout)
+stdout_handler.addFilter(LogFileFilter())
+handlers = [stdout_handler]
+logging.basicConfig(
+    level=logging.INFO, format="[%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s", handlers=handlers
+)
 LOGGER = logging.getLogger(__name__)
 
 # Suppress DeprecationWarning

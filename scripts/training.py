@@ -8,6 +8,7 @@ import tensorflow as tf
 import numpy as np
 from tqdm.auto import tqdm
 import pytz
+import sys
 
 from eoflow.models.segmentation_base import segmentation_metrics
 from eoflow.models.losses import TanimotoDistanceLoss
@@ -18,9 +19,15 @@ from tf_data_utils import (
     normalize_meanstd,
     Unpack, ToFloat32, augment_data, FillNaN, OneMinusEncoding, LabelsToDict)
 
+from filter import LogFileFilter
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+stdout_handler = logging.StreamHandler(sys.stdout)
+stdout_handler.addFilter(LogFileFilter())
+handlers = [stdout_handler]
+logging.basicConfig(
+    level=logging.INFO, format="[%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s", handlers=handlers
+)
 LOGGER = logging.getLogger(__name__)
 
 # Script parameters
@@ -103,7 +110,6 @@ def initialise_callbacks(model_folder, model_name, fold, model_config):
     model_path = f'{model_folder}/{creator}-fold-{fold}_{now}'
 
     os.makedirs(model_path, exist_ok=True)
-
     logs_path = os.path.join(model_path, 'logs')
     checkpoints_path = os.path.join(model_path, 'checkpoints', 'model.ckpt')
 
