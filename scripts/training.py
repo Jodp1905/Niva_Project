@@ -26,6 +26,7 @@ NIVA_PROJECT_DATA_ROOT = os.getenv('NIVA_PROJECT_DATA_ROOT')
 DATASET_FOLDER = Path(f'{NIVA_PROJECT_DATA_ROOT}/datasets/')
 MODEL_FOLDER = Path(f'{NIVA_PROJECT_DATA_ROOT}/model/')
 CHKPT_FOLDER = None
+ENABLE_DATA_SHARDING = True
 
 # Model hyperparameters
 ITERATIONS_PER_EPOCH = 30
@@ -175,14 +176,30 @@ def initialise_callbacks(model_folder, model_name, fold, model_config):
     return model_path, callbacks
 
 
+def set_auto_shard_policy(dataset):
+    options = tf.data.Options()
+    options.experimental_distribute.auto_shard_policy = tf.data.experimental.AutoShardPolicy.DATA
+    return dataset.with_options(options)
+
+
+def load_and_process_dataset(dataset_folder, fold, batch_size):
+    dataset_path = os.path.join(dataset_folder, f'fold_{fold}')
+    dataset = tf.data.Dataset.load(dataset_path)
+    dataset = dataset.batch(batch_size)
+    if ENABLE_DATA_SHARDING:
+        dataset = set_auto_shard_policy(dataset)
+    return dataset
+
+
 def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
                   batch_size, iterations_per_epoch, num_epochs,
                   model_name, n_folds, model_config):
 
     LOGGER.info('Loading K TF datasets')
-    ds_folds = [tf.data.Dataset.load(os.path.join(dataset_folder, f'fold_{fold}'))
-                .batch(batch_size)
-                for fold in range(1, n_folds + 1)]
+    ds_folds = []
+    for fold in range(1, n_folds + 1):
+        dataset = load_and_process_dataset(dataset_folder, fold, batch_size)
+        ds_folds.append(dataset)
 
     folds = list(range(n_folds))
     folds_ids_list = [(folds[:nf] + folds[1 + nf:], [nf]) for nf in folds]
