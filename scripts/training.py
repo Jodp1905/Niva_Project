@@ -163,8 +163,7 @@ def initialise_callbacks(model_folder, fold, model_config):
     """
     timestamp = datetime.now(TIMEZONE)
     now = f"{timestamp.day}-{timestamp.month}-{timestamp.hour}-{timestamp.minute}"
-    creator = os.getlogin()
-    model_path = f'{model_folder}/{creator}-fold-{fold}_{now}'
+    model_path = f'{model_folder}/fold-{fold}_{now}'
 
     os.makedirs(model_path, exist_ok=True)
     logs_path = os.path.join(model_path, 'logs')
