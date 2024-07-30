@@ -145,6 +145,10 @@ def save_datasets_parallel(folds_folder, metadata_path, dataset_folder,
                 exit(1)
 
 
-if __name__ == '__main__':
+def create_datasets():
     save_datasets_parallel(FOLDS_FOLDER, METADATA_PATH, DATASET_FOLDER,
                            AUGMENTATIONS_FEATURES, AUGMENTATIONS_LABEL, N_FOLDS)
+
+
+if __name__ == '__main__':
+    create_datasets()
