@@ -5,6 +5,7 @@ import tensorflow as tf
 from tqdm.auto import tqdm
 from functools import partial
 import shutil
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from tf_data_utils import (
     npz_dir_dataset,
@@ -38,7 +39,7 @@ def get_dataset(fold_folder, metadata_path, fold, augment,
     Creates and returns an augmented dataset for the given fold.
 
     Args:
-        folds_folder (str): Path to the folder containing folds data.
+        fold_folder (str): Path to the folder containing folds data.
         metadata_path (str): Path to the metadata file.
         fold (int): Fold number.
         augment (bool): Whether to apply data augmentation.
@@ -79,25 +80,71 @@ def get_dataset(fold_folder, metadata_path, fold, augment,
     return dataset
 
 
-def save_datasets(folds_folder, metadata_path, dataset_folder,
-                  augmentations_features, augmentations_label,
-                  n_folds, num_parallel=AUTOTUNE):
+def save_dataset(folds_folder, metadata_path, dataset_folder, fold,
+                 augmentations_features, augmentations_label, num_parallel):
+    """
+    Saves the dataset for the given fold to the specified folder.
+
+    Args:
+        folds_folder (str): Path to the folder containing folds.
+        metadata_path (str): Path to the metadata file.
+        dataset_folder (str): Path to the folder where the dataset will be saved.
+        fold (int): Fold number, used to identify the fold data.
+        augmentations_features (list): List of feature augmentations to apply.
+        augmentations_label (list): List of label augmentations to apply.
+        num_parallel (int): Number of parallel processes to use for dataset interleave.
+
+    Returns:
+        None
+    """
+    dataset = get_dataset(folds_folder, metadata_path, fold, True,
+                          augmentations_features, augmentations_label, num_parallel)
+    dataset_path = os.path.join(dataset_folder, f'fold_{fold}')
+    if os.path.exists(dataset_path):
+        shutil.rmtree(dataset_path)
+    try:
+        tf.data.Dataset.save(dataset, dataset_path)
+        LOGGER.info(f'Saved dataset for fold {fold} to {dataset_path}')
+    except Exception as e:
+        LOGGER.error(
+            f'Error saving dataset for fold {fold} to {dataset_path}: {e}')
+        raise
+
+
+def save_datasets_parallel(folds_folder, metadata_path, dataset_folder,
+                           augmentations_features, augmentations_label,
+                           n_folds, num_parallel=AUTOTUNE):
+    """
+    Saves the datasets for all folds in parallel.
+
+    Args:
+        folds_folder (str): Path to the folder containing folds.
+        metadata_path (str): Path to the metadata file.
+        dataset_folder (str): Path to the folder where datasets will be saved.
+        augmentations_features (list): List of feature augmentations to apply.
+        augmentations_label (list): List of label augmentations to apply.
+        n_folds (int): Number of folds.
+        num_parallel (int, optional): Number of parallel processes to use for dataset interleave. 
+        Defaults to AUTOTUNE.
+
+    Returns:
+        None
+    """
     os.makedirs(dataset_folder, exist_ok=True)
-    for fold in tqdm(range(1, n_folds + 1)):
-        dataset = get_dataset(folds_folder, metadata_path, fold, True,
-                              augmentations_features, augmentations_label, num_parallel)
-        dataset_path = os.path.join(dataset_folder, f'fold_{fold}')
-        if os.path.exists(dataset_path):
-            shutil.rmtree(dataset_path)
-        try:
-            tf.data.Dataset.save(dataset, dataset_path)
-            LOGGER.info(f'Saved dataset for fold {fold} to {dataset_path}')
-        except Exception as e:
-            LOGGER.error(
-                f'Error saving dataset for fold {fold} to {dataset_path}: {e}')
-            exit(1)
+    futures = []
+    with ProcessPoolExecutor() as executor:
+        for fold in range(1, n_folds + 1):
+            futures.append(executor.submit(save_dataset, folds_folder, metadata_path,
+                                           dataset_folder, fold, augmentations_features,
+                                           augmentations_label, num_parallel))
+        for future in tqdm(as_completed(futures), total=n_folds):
+            try:
+                future.result()
+            except Exception as e:
+                LOGGER.error(f"Error occurred: {e}")
+                exit(1)
 
 
 if __name__ == '__main__':
-    save_datasets(FOLDS_FOLDER, METADATA_PATH, DATASET_FOLDER,
-                  AUGMENTATIONS_FEATURES, AUGMENTATIONS_LABEL, N_FOLDS)
+    save_datasets_parallel(FOLDS_FOLDER, METADATA_PATH, DATASET_FOLDER,
+                           AUGMENTATIONS_FEATURES, AUGMENTATIONS_LABEL, N_FOLDS)
