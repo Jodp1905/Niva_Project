@@ -95,12 +95,12 @@ def k_folds() -> None:
             for npz_file in npz_files:
                 future = executor.submit(partial_fn, npz_file)
                 futures.append(future)
-                pbar.update(1)
             for future in as_completed(futures):
                 try:
                     future.result()
                 except Exception as e:
                     LOGGER.error(f'A task failed: {e}')
+                pbar.update(1)
 
     LOGGER.info('Saving metadata file')
     df.to_csv(FINAL_METADATA_PATH, index=False)
