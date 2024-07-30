@@ -97,9 +97,9 @@ def initialise_model(input_shape, model_config, chkpt_folder=None):
 
 
 def initialise_callbacks(model_folder, model_name, fold, model_config):
-    now = datetime.now(TIMEZONE).isoformat(
-        sep='-', timespec='seconds').replace(':', '-')
-    model_path = f'{model_folder}/{model_name}_fold-{fold}_{now}'
+    timestamp = datetime.now(TIMEZONE)
+    now = f"{timestamp.day}-{timestamp.month}-{timestamp.hour}-{timestamp.minute}"
+    model_path = f'{model_folder}/fold-{fold}_{now}'
 
     os.makedirs(model_path, exist_ok=True)
 
