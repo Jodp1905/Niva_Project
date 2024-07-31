@@ -30,6 +30,7 @@ AUGMENTATIONS_FEATURES = ["flip_left_right", "flip_up_down",
                           "rotate", "brightness"]
 AUGMENTATIONS_LABEL = ["flip_left_right", "flip_up_down", "rotate"]
 N_FOLDS = int(os.getenv('N_FOLDS', 10))
+PROCESS_POOL_WORKERS = int(os.getenv('PROCESS_POOL_WORKERS', os.cpu_count()))
 
 
 def get_dataset(fold_folder, metadata_path, fold, augment,
@@ -132,7 +133,7 @@ def save_datasets_parallel(folds_folder, metadata_path, dataset_folder,
     """
     os.makedirs(dataset_folder, exist_ok=True)
     futures = []
-    with ProcessPoolExecutor() as executor:
+    with ProcessPoolExecutor(max_workers=PROCESS_POOL_WORKERS) as executor:
         for fold in range(1, n_folds + 1):
             futures.append(executor.submit(save_dataset, folds_folder, metadata_path,
                                            dataset_folder, fold, augmentations_features,

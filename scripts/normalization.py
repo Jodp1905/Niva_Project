@@ -25,6 +25,7 @@ NPZ_FILES_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/npz_files/')
 METADATA_PATH = Path(f'{NIVA_PROJECT_DATA_ROOT}/patchlets_dataframe.csv')
 NORMALIZED_METADATA_PATH = Path(
     f'{NIVA_PROJECT_DATA_ROOT}/patchlets_dataframe_normalized.csv')
+PROCESS_POOL_WORKERS = int(os.getenv('PROCESS_POOL_WORKERS', os.cpu_count()))
 
 
 def stats_per_npz_ts(npz_file_path: str) -> Dict[str, np.array]:
@@ -101,7 +102,7 @@ def calculate_normalization_factors() -> None:
 
     LOGGER.info(f'Compute stats per patchlet for {len(npz_files)} npz files')
     results = []
-    with ProcessPoolExecutor() as executor:
+    with ProcessPoolExecutor(max_workers=PROCESS_POOL_WORKERS) as executor:
         futures = []
         for npz_file in npz_files:
             future = executor.submit(stats_per_npz_ts, npz_file)
