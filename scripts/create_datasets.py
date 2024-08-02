@@ -76,8 +76,6 @@ def get_dataset(fold_folder, metadata_path, fold, augment,
 
     for dataset_op in dataset_ops:
         dataset = dataset.map(dataset_op, num_parallel_calls=AUTOTUNE)
-    # TODO: check if prefetching is necessary in regard to memory overhead
-    dataset = dataset.prefetch(buffer_size=AUTOTUNE)
     return dataset
 
 
