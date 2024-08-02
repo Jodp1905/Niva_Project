@@ -300,8 +300,6 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
         f"Number of devices (workers): {num_workers}\nDevices: {devices}")
 
     for training_ids, testing_id in folds_ids_list:
-        left_out_fold = testing_id[0] + 1
-        LOGGER.info(f'Training model for left-out fold {left_out_fold}')
 
         fold_val = np.random.choice(training_ids)
         folds_train = [tid for tid in training_ids if tid != fold_val]
@@ -319,7 +317,7 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
             model = initialise_model(
                 input_shape, model_config, chkpt_folder=chkpt_folder)
             model_path, callbacks, logs_path = initialise_callbacks(
-                model_folder, left_out_fold, model_config)
+                model_folder, testing_id[0], model_config)
             LOGGER.info(f'\tTraining model, writing to {model_path}')
             try:
                 model.net.fit(ds_train,
@@ -333,7 +331,7 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
             models.append(model)
             model_paths.append(model_path)
             LOGGER.info(
-                f'\tModel trained and saved to {model_path} for left out fold {left_out_fold}'
+                f'\tModel trained and saved to {model_path} for evaluation on fold {testing_id[0]}'
                 f'\n\tTraining time: {training_end_time - training_start_time} seconds')
 
     LOGGER.info('Create average model')
@@ -357,12 +355,11 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
     avg_model.net.save_weights(checkpoints_path)
 
     for _, testing_id in folds_ids_list:
-        left_out_fold = testing_id[0] + 1
-        LOGGER.info(f'Evaluating model on left-out fold {left_out_fold}')
+        LOGGER.info(f'Evaluating model on left-out fold {testing_id[0]}')
         model = models[testing_id[0]]
         model.net.evaluate(ds_folds[testing_id[0]])
         LOGGER.info(
-            f'Evaluating average model on left-out fold {left_out_fold}')
+            f'Evaluating average model on left-out fold {testing_id[0]}')
         avg_model.net.evaluate(ds_folds[testing_id[0]])
         LOGGER.info('\n\n')
     train_full_end_time = time.time()
