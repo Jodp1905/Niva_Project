@@ -278,6 +278,7 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
                   batch_size, iterations_per_epoch, num_epochs,
                   model_name, n_folds, model_config):
 
+    training_full_start_time = time.time()
     LOGGER.info('Loading K TF datasets')
     ds_folds = []
     for fold in range(1, n_folds + 1):
@@ -369,6 +370,9 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
             f'Evaluating average model on left-out fold {left_out_fold}')
         avg_model.net.evaluate(ds_folds[testing_id[0]])
         LOGGER.info('\n\n')
+    train_full_end_time = time.time()
+    LOGGER.info(
+        f'Training all models and average model took {train_full_end_time - training_full_start_time} seconds')
 
 
 if __name__ == '__main__':
