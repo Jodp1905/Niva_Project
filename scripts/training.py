@@ -31,14 +31,14 @@ NUM_EPOCHS = 5
 BATCH_SIZE = 4
 N_CLASSES = 2
 N_FOLDS = 10
-CHKPT_FOLDER = None
-ENABLE_DATA_SHARDING = True
+TF_FULL_PROFILING = False
 PREFETCH_DATA = False
+ENABLE_DATA_SHARDING = True
+CHKPT_FOLDER = None
 INPUT_SHAPE = [256, 256, 4]
 MODEL_NAME = "resunet-a"
 
 # Timezone parameters
-TF_PROFILING = True
 UPDATE_FREQ = 'epoch'
 TIMEZONE = pytz.timezone('Europe/Paris')
 
@@ -101,9 +101,9 @@ class CustomTensorBoard(tf.keras.callbacks.TensorBoard):
             logs (dict): Dictionary of logs, containing the current training metrics.
         """
         super().on_train_begin(logs)
-        if TF_PROFILING:
+        if TF_FULL_PROFILING:
             tf.profiler.experimental.start(self.log_dir)
-            LOGGER.info(f"Profiler started at {self.log_dir}")
+            LOGGER.info(f"Full Profiler started at {self.log_dir}")
 
     def on_train_end(self, logs=None):
         """
@@ -114,9 +114,10 @@ class CustomTensorBoard(tf.keras.callbacks.TensorBoard):
         Args:
             logs (dict): Dictionary of logs, containing the final training metrics.
         """
-        if TF_PROFILING:
+        if TF_FULL_PROFILING:
             tf.profiler.experimental.stop()
-            LOGGER.info(f"Profiler stopped and data saved to {self.log_dir}")
+            LOGGER.info(
+                f"Full Profiler stopped and data saved to {self.log_dir}")
         super().on_train_end(logs)
 
 
@@ -240,7 +241,7 @@ def initialise_callbacks(model_folder, fold, model_config):
     logs_path = os.path.join(model_path, 'logs')
     checkpoints_path = os.path.join(model_path, 'checkpoints', 'model.ckpt')
 
-    tensorboard_callback = tf.keras.callbacks.TensorBoard(
+    tensorboard_callback = CustomTensorBoard(
         log_dir=logs_path,
         update_freq=UPDATE_FREQ,
     )
@@ -321,19 +322,13 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
                 model_folder, left_out_fold, model_config)
             LOGGER.info(f'\tTraining model, writing to {model_path}')
             try:
-                if TF_PROFILING:
-                    tf.profiler.experimental.start(logs_path)
                 model.net.fit(ds_train,
                               validation_data=ds_val,
                               epochs=num_epochs,
                               steps_per_epoch=iterations_per_epoch,
                               callbacks=callbacks)
-                if TF_PROFILING:
-                    tf.profiler.experimental.stop()
             except Exception as e:
                 LOGGER.error(f"Exception during training: {e}")
-                if TF_PROFILING:
-                    tf.profiler.experimental.stop()
             training_end_time = time.time()
             models.append(model)
             model_paths.append(model_path)
