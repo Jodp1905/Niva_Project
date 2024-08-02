@@ -339,7 +339,6 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
             LOGGER.info(
                 f'\tModel trained and saved to {model_path} for left out fold {left_out_fold}'
                 f'\n\tTraining time: {training_end_time - training_start_time} seconds')
-        exit()
 
     LOGGER.info('Create average model')
     weights = [model.net.get_weights() for model in models]
