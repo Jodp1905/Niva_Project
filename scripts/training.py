@@ -7,6 +7,8 @@ import numpy as np
 from pathlib import Path
 import pytz
 import sys
+import psutil
+import time
 
 from eoflow.models.segmentation_base import segmentation_metrics
 from eoflow.models.losses import TanimotoDistanceLoss
@@ -34,6 +36,7 @@ DATASET_FOLDER = Path(f'{NIVA_PROJECT_DATA_ROOT}/datasets/')
 MODEL_FOLDER = Path(f'{NIVA_PROJECT_DATA_ROOT}/model/')
 CHKPT_FOLDER = None
 ENABLE_DATA_SHARDING = True
+PREFETCH_DATA = False
 
 # Model hyperparameters
 ITERATIONS_PER_EPOCH = 30
@@ -111,10 +114,78 @@ class CustomTensorBoard(tf.keras.callbacks.TensorBoard):
         Args:
             logs (dict): Dictionary of logs, containing the final training metrics.
         """
-        super().on_train_end(logs)
         if TF_PROFILING:
             tf.profiler.experimental.stop()
             LOGGER.info(f"Profiler stopped and data saved to {self.log_dir}")
+        super().on_train_end(logs)
+
+
+class PerformanceLoggingCallback(tf.keras.callbacks.Callback):
+    def __init__(self, log_dir):
+        super().__init__()
+        self.log_dir = log_dir
+        self.writer = tf.summary.create_file_writer(log_dir)
+        self.epoch_start_time = None
+        self.batch_start_time = None
+
+    def on_train_begin(self, logs=None):
+        mem_info = psutil.virtual_memory()
+        total_memory_gb = mem_info.total / (1024 ** 3)  # in GB
+
+        with self.writer.as_default():
+            tf.summary.scalar('Memory/Total_memory_GB',
+                              total_memory_gb, step=0)
+            self.writer.flush()
+
+    def on_epoch_begin(self, epoch, logs=None):
+        self.epoch_start_time = time.time()
+
+    def on_epoch_end(self, epoch, logs=None):
+        epoch_duration = time.time() - self.epoch_start_time
+        process = psutil.Process(os.getpid())
+        mem_info = process.memory_info()
+        rss_memory_gb = mem_info.rss / (1024 ** 3)  # in GB
+        vms_memory_gb = mem_info.vms / (1024 ** 3)  # in GB
+
+        model_size_gb = self.calculate_model_size_gb()
+
+        with self.writer.as_default():
+            tf.summary.scalar(
+                'Performance/Epoch_duration_seconds', epoch_duration, step=epoch)
+            tf.summary.scalar('Memory/RSS_memory_GB',
+                              rss_memory_gb, step=epoch)
+            tf.summary.scalar('Memory/VMS_memory_GB',
+                              vms_memory_gb, step=epoch)
+            tf.summary.scalar('Model/Model_size_GB', model_size_gb, step=epoch)
+            self.writer.flush()
+
+    def on_train_batch_begin(self, batch, logs=None):
+        self.batch_start_time = time.time()
+
+    def on_train_batch_end(self, batch, logs=None):
+        batch_duration = time.time() - self.batch_start_time
+        process = psutil.Process(os.getpid())
+        mem_info = process.memory_info()
+        rss_memory_gb = mem_info.rss / (1024 ** 3)  # in GB
+        vms_memory_gb = mem_info.vms / (1024 ** 3)  # in GB
+
+        model_size_gb = self.calculate_model_size_gb()
+
+        with self.writer.as_default():
+            tf.summary.scalar(
+                'Performance/Batch_duration_seconds', batch_duration, step=batch)
+            tf.summary.scalar('Memory/RSS_memory_GB',
+                              rss_memory_gb, step=batch)
+            tf.summary.scalar('Memory/VMS_memory_GB',
+                              vms_memory_gb, step=batch)
+            tf.summary.scalar('Model/Model_size_GB', model_size_gb, step=batch)
+            self.writer.flush()
+
+    def calculate_model_size_gb(self):
+        model_size_bytes = sum([tf.size(variable).numpy(
+        ) * variable.dtype.size for variable in self.model.trainable_weights])
+        model_size_gb = model_size_bytes / (1024 ** 3)  # in GB
+        return model_size_gb
 
 
 def initialise_model(input_shape, model_config, chkpt_folder=None):
@@ -124,7 +195,7 @@ def initialise_model(input_shape, model_config, chkpt_folder=None):
     Args:
         input_shape (tuple): The shape of the input images.
         model_config (dict): Configuration parameters for the model.
-        chkpt_folder (str, optional): Path to the folder containing model checkpoint. 
+        chkpt_folder (str, optional): Path to the folder containing model checkpoint.
         Defaults to None.
 
     Returns:
@@ -169,16 +240,21 @@ def initialise_callbacks(model_folder, fold, model_config):
     logs_path = os.path.join(model_path, 'logs')
     checkpoints_path = os.path.join(model_path, 'checkpoints', 'model.ckpt')
 
-    tensorboard_callback = CustomTensorBoard(
-        log_dir=logs_path, update_freq=UPDATE_FREQ)
+    tensorboard_callback = tf.keras.callbacks.TensorBoard(
+        log_dir=logs_path,
+        update_freq=UPDATE_FREQ,
+    )
+
     checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
         checkpoints_path, save_best_only=True, save_freq='epoch', save_weights_only=True)
+    performance_callback = PerformanceLoggingCallback(log_dir=logs_path)
 
     with open(f'{model_path}/model_cfg.json', 'w') as jfile:
         json.dump(model_config, jfile)
 
-    callbacks = [tensorboard_callback, checkpoint_callback]
-    return model_path, callbacks
+    callbacks = [tensorboard_callback,
+                 checkpoint_callback, performance_callback]
+    return model_path, callbacks, logs_path
 
 
 def set_auto_shard_policy(dataset):
@@ -193,6 +269,8 @@ def load_and_process_dataset(dataset_folder, fold, batch_size):
     dataset = dataset.batch(batch_size)
     if ENABLE_DATA_SHARDING:
         dataset = set_auto_shard_policy(dataset)
+    if PREFETCH_DATA:
+        dataset = dataset.prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
     return dataset
 
 
@@ -231,26 +309,37 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
         ds_folds_train = [ds_folds[tid] for tid in folds_train]
         ds_train = reduce(tf.data.Dataset.concatenate, ds_folds_train)
         ds_val = ds_folds[fold_val]
+        # TODO repeat without argument repeats indefinitely, memory leak
         ds_train = ds_train.repeat()
 
         with strategy.scope():
+            training_start_time = time.time()
             model = initialise_model(
                 input_shape, model_config, chkpt_folder=chkpt_folder)
-            model_path, callbacks = initialise_callbacks(
+            model_path, callbacks, logs_path = initialise_callbacks(
                 model_folder, left_out_fold, model_config)
             LOGGER.info(f'\tTraining model, writing to {model_path}')
             try:
+                if TF_PROFILING:
+                    tf.profiler.experimental.start(logs_path)
                 model.net.fit(ds_train,
                               validation_data=ds_val,
                               epochs=num_epochs,
                               steps_per_epoch=iterations_per_epoch,
                               callbacks=callbacks)
+                if TF_PROFILING:
+                    tf.profiler.experimental.stop()
             except Exception as e:
                 LOGGER.error(f"Exception during training: {e}")
+                if TF_PROFILING:
+                    tf.profiler.experimental.stop()
+            training_end_time = time.time()
             models.append(model)
             model_paths.append(model_path)
             LOGGER.info(
-                f'\tModel trained and saved to {model_path} for left out fold {left_out_fold}')
+                f'\tModel trained and saved to {model_path} for left out fold {left_out_fold}'
+                f'\n\tTraining time: {training_end_time - training_start_time} seconds')
+        exit()
 
     LOGGER.info('Create average model')
     weights = [model.net.get_weights() for model in models]
