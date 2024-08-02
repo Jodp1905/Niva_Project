@@ -20,17 +20,18 @@ LOGGER = logging.getLogger(__name__)
 NIVA_PROJECT_DATA_ROOT = os.getenv('NIVA_PROJECT_DATA_ROOT')
 FOLDS_FOLDER = Path(f'{NIVA_PROJECT_DATA_ROOT}/folds/')
 DATASET_FOLDER = Path(f'{NIVA_PROJECT_DATA_ROOT}/datasets/')
-METADATA_PATH = Path(
-    f'{NIVA_PROJECT_DATA_ROOT}/patchlets_dataframe_final.csv')
+METADATA_PATH = Path(f'{NIVA_PROJECT_DATA_ROOT}/patchlets_dataframe_final.csv')
 
 # Dataset generation parameters
 NORMALIZER = dict(to_medianstd=partial(normalize_meanstd, subtract='median'))
 AUTOTUNE = tf.data.experimental.AUTOTUNE
-AUGMENTATIONS_FEATURES = ["flip_left_right", "flip_up_down",
-                          "rotate", "brightness"]
+AUGMENTATIONS_FEATURES = ["flip_left_right",
+                          "flip_up_down", "rotate", "brightness"]
 AUGMENTATIONS_LABEL = ["flip_left_right", "flip_up_down", "rotate"]
 N_FOLDS = int(os.getenv('N_FOLDS', 10))
 PROCESS_POOL_WORKERS = int(os.getenv('PROCESS_POOL_WORKERS', os.cpu_count()))
+NUM_SHARDS = int(os.getenv('NUM_SHARDS', 35))
+USE_FILE_SHARDING = False
 
 
 def get_dataset(fold_folder, metadata_path, fold, augment,
@@ -79,6 +80,12 @@ def get_dataset(fold_folder, metadata_path, fold, augment,
     return dataset
 
 
+@tf.function
+def shard_func(element, index):
+    """Custom shard function that assigns shard IDs to dataset elements using a random distribution."""
+    return tf.random.uniform((), minval=0, maxval=NUM_SHARDS, dtype=tf.int64)
+
+
 def save_dataset(folds_folder, metadata_path, dataset_folder, fold,
                  augmentations_features, augmentations_label, num_parallel):
     """
@@ -98,11 +105,15 @@ def save_dataset(folds_folder, metadata_path, dataset_folder, fold,
     """
     dataset = get_dataset(folds_folder, metadata_path, fold, True,
                           augmentations_features, augmentations_label, num_parallel)
+
     dataset_path = os.path.join(dataset_folder, f'fold_{fold}')
     if os.path.exists(dataset_path):
         shutil.rmtree(dataset_path)
     try:
-        tf.data.Dataset.save(dataset, dataset_path)
+        if USE_FILE_SHARDING:
+            dataset.save(path=dataset_path, shard_func=shard_func)
+        else:
+            dataset.save(path=dataset_path)
         LOGGER.info(f'Saved dataset for fold {fold} to {dataset_path}')
     except Exception as e:
         LOGGER.error(
