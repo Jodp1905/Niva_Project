@@ -25,7 +25,19 @@ logging.basicConfig(
 )
 LOGGER = logging.getLogger(__name__)
 
-# Script parameters
+# Model hyperparameters
+ITERATIONS_PER_EPOCH = 50
+NUM_EPOCHS = 5
+BATCH_SIZE = 4
+N_CLASSES = 2
+N_FOLDS = 10
+CHKPT_FOLDER = None
+ENABLE_DATA_SHARDING = True
+PREFETCH_DATA = False
+INPUT_SHAPE = [256, 256, 4]
+MODEL_NAME = "resunet-a"
+
+# Timezone parameters
 TF_PROFILING = True
 UPDATE_FREQ = 'epoch'
 TIMEZONE = pytz.timezone('Europe/Paris')
@@ -34,18 +46,6 @@ TIMEZONE = pytz.timezone('Europe/Paris')
 NIVA_PROJECT_DATA_ROOT = os.getenv('NIVA_PROJECT_DATA_ROOT')
 DATASET_FOLDER = Path(f'{NIVA_PROJECT_DATA_ROOT}/datasets/')
 MODEL_FOLDER = Path(f'{NIVA_PROJECT_DATA_ROOT}/model/')
-CHKPT_FOLDER = None
-ENABLE_DATA_SHARDING = True
-PREFETCH_DATA = False
-
-# Model hyperparameters
-ITERATIONS_PER_EPOCH = 30
-NUM_EPOCHS = 2
-INPUT_SHAPE = [256, 256, 4]
-N_CLASSES = 2
-BATCH_SIZE = 8
-MODEL_NAME = "resunet-a"
-N_FOLDS = 10
 
 # Model configuration
 MODEL_CONFIG = {
