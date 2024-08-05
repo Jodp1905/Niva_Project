@@ -328,6 +328,7 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
 
             # Registering fold configuration and training duration
             fold_duration = init_duration + fitting_duration + testing_duration
+            model_size = callbacks[-1].model_size
             LOGGER.info(f'\n'
                         f'Fold {testing_id[0]} completed in {fold_duration} seconds \n'
                         f'Model init duration: {init_duration} seconds \n'
@@ -337,6 +338,7 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
                 'testing_fold': testing_id[0],
                 'training_folds': folds_train,
                 'validation_fold': int(fold_val),
+                'model_size_gb': model_size,
                 'fold_duration': fold_duration,
                 'init_duration': init_duration,
                 'fitting_duration': fitting_duration,
