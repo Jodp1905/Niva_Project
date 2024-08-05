@@ -36,6 +36,7 @@ NIVA_PROJECT_DATA_ROOT = os.getenv('NIVA_PROJECT_DATA_ROOT')
 NC_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/sentinel2/images/FR/')
 MASK_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/sentinel2/masks/FR/')
 EOPATCH_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/eopatches/')
+PROCESS_POOL_WORKERS = int(os.getenv('PROCESS_POOL_WORKERS', os.cpu_count()))
 
 
 def transform_timestamps(time_data: DataArray) -> list:
@@ -211,7 +212,7 @@ def create_all_eopatches() -> None:
 
     LOGGER.info(
         f'Creating EOPatches from {len(file_tuples)} pairs of NetCDF and mask files')
-    with ProcessPoolExecutor() as executor:
+    with ProcessPoolExecutor(max_workers=PROCESS_POOL_WORKERS) as executor:
         futures = []
         with tqdm(total=len(file_tuples), desc="Creating eopatches") as pbar:
             for nc_file, mask_file in file_tuples:

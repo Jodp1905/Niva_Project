@@ -1,8 +1,8 @@
 from eopatches_for_sampling import create_all_eopatches
-from creation_patchlets import create_all_patchlets
 from patchlets_to_npz import patchlets_to_npz_files
 from normalization import calculate_normalization_factors
 from create_kfold import k_folds
+from create_datasets import create_datasets
 from os import getenv
 import logging
 import time
@@ -50,6 +50,11 @@ def main():
         k_folds()
         end_time = time.time()
         durations.append(('k_folds', end_time - start_time))
+
+        start_time = time.time()
+        create_datasets()
+        end_time = time.time()
+        durations.append(('create_datasets', end_time - start_time))
 
         logging.info("\n--- Overview ---")
         total_time = 0

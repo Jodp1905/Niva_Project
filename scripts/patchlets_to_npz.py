@@ -31,6 +31,7 @@ METADATA_PATH = Path(f'{NIVA_PROJECT_DATA_ROOT}/patchlets_dataframe.csv')
 # Parameters
 # Number of patchlets data concatenated in each .npz end file
 NPZ_NB_CHUNKS = int(os.getenv('NPZ_NB_CHUNKS', 100))
+PROCESS_POOL_WORKERS = int(os.getenv('PROCESS_POOL_WORKERS', os.cpu_count()))
 
 
 def extract_npys(patchlet_path: str) -> Tuple:
@@ -212,7 +213,7 @@ def patchlets_to_npz_files():
 
     # Process chunks in parallel
     df_list = []
-    with ProcessPoolExecutor() as executor:
+    with ProcessPoolExecutor(max_workers=PROCESS_POOL_WORKERS) as executor:
         futures = []
         for chunk_index, chunk in enumerate(chunks):
             future = executor.submit(

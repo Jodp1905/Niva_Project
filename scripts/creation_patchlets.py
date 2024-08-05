@@ -33,12 +33,13 @@ PATCHLETS_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/patchlets/')
 # Define EOTask parameters
 EOTASK_SAMPLE_POSITIVE = os.getenv('SAMPLE_POSITIVE', "True").lower() == "true"
 EOTASK_MASK_FEATURE_NAME = os.getenv('MASK_FEATURE_NAME', 'EXTENT')
-EOTASK_BUFFER = os.getenv('BUFFER', 0)
-EOTASK_PATCH_SIZE = os.getenv('PATCH_SIZE', 64)
-EOTASK_NUM_SAMPLES = os.getenv('NUM_SAMPLES', 20)
-EOTASK_MAX_RETRIES = os.getenv('MAX_RETRIES', 100)
-EOTASK_FRACTION_VALID = os.getenv('FRACTION_VALID', 0.4)
+EOTASK_BUFFER = int(os.getenv('BUFFER', 0))
+EOTASK_PATCH_SIZE = int(os.getenv('PATCH_SIZE', 64))
+EOTASK_NUM_SAMPLES = int(os.getenv('NUM_SAMPLES', 20))
+EOTASK_MAX_RETRIES = int(os.getenv('MAX_RETRIES', 100))
+EOTASK_FRACTION_VALID = int(os.getenv('FRACTION_VALID', 0.4))
 EOTASK_SAMPLED_FEATURE_NAME = os.getenv('SAMPLED_FEATURE_NAME', 'BANDS')
+PROCESS_POOL_WORKERS = int(os.getenv('PROCESS_POOL_WORKERS', os.cpu_count()))
 
 
 class SamplePatchlets(EOTask):
@@ -255,7 +256,7 @@ def create_all_patchlets():
     # Create patchlets in parallel
     total_patchlets_created = 0
     total_patchlets_best_case = len(eopatches) * EOTASK_NUM_SAMPLES
-    with ProcessPoolExecutor() as executor:
+    with ProcessPoolExecutor(max_workers=PROCESS_POOL_WORKERS) as executor:
         futures = []
         with tqdm(total=len(eopatches), desc="Creating patchlets") as pbar:
             for eopatch_path in eopatches:

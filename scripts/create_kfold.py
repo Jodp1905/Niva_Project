@@ -32,7 +32,8 @@ FINAL_METADATA_PATH = Path(
 KFOLD_FOLDER = Path(f'{NIVA_PROJECT_DATA_ROOT}/folds/')
 
 # Parameters
-NUM_FOLDS = os.getenv('NUM_FOLDS', 10)
+NUM_FOLDS = int(os.getenv('NUM_FOLDS', 10))
+PROCESS_POOL_WORKERS = int(os.getenv('PROCESS_POOL_WORKERS', os.cpu_count()))
 
 
 def fold_split(chunk: str, df: pd.DataFrame, npz_folder: str, folds_folder: str, n_folds: int):
@@ -96,18 +97,18 @@ def k_folds() -> None:
     npz_files = sorted([file.stem for file in NPZ_FILES_DIR.glob('*.npz')])
 
     LOGGER.info('Splitting patchlets into folds')
-    with ProcessPoolExecutor() as executor:
+    with ProcessPoolExecutor(max_workers=PROCESS_POOL_WORKERS) as executor:
         futures = []
         with tqdm(total=len(npz_files)) as pbar:
             for npz_file in npz_files:
                 future = executor.submit(partial_fn, npz_file)
                 futures.append(future)
-                pbar.update(1)
             for future in as_completed(futures):
                 try:
                     future.result()
                 except Exception as e:
                     LOGGER.error(f'A task failed: {e}')
+                pbar.update(1)
 
     LOGGER.info('Saving metadata file')
     df.to_csv(FINAL_METADATA_PATH, index=False)
