@@ -242,13 +242,14 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
                   batch_size, iterations_per_epoch, num_epochs,
                   model_name, n_folds, model_config):
 
+    training_full_start_time = time.time()
+
     # Dump hyperparameters and model configuration to json
     with open(f'{model_folder}/hyperparameters.json', 'w') as jfile:
-        json.dump(HYPER_PARAM_CONFIG, jfile)
+        json.dump(HYPER_PARAM_CONFIG, jfile, indent=4)
     with open(f'{model_folder}/model_cfg.json', 'w') as jfile:
-        json.dump(model_config, jfile)
+        json.dump(model_config, jfile, indent=4)
 
-    training_full_start_time = time.time()
     LOGGER.info('Loading K TF datasets')
 
     # Creating datasets for each fold
@@ -319,7 +320,7 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
                 f'\tEvaluation time: {testing_end_time - testing_start_time} seconds')
             evaluation_path = os.path.join(model_path, 'evaluation.json')
             with open(evaluation_path, 'w') as jfile:
-                json.dump(evaluation_dict, jfile)
+                json.dump(evaluation_dict, jfile, indent=4)
             LOGGER.info(f'\tEvaluation results saved to {model_path}')
 
             # Registering fold configuration and training duration
@@ -340,7 +341,7 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
             }
             fold_data_path = os.path.join(model_path, 'fold_infos.json')
             with open(fold_data_path, 'w') as jfile:
-                json.dump(fold_infos, jfile)
+                json.dump(fold_infos, jfile, indent=4)
 
     # Creating average model
     LOGGER.info('Create average model')
@@ -367,7 +368,7 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
             zip(avg_model.net.metrics_names, avg_evaluation))
         evaluation_path = os.path.join(model_path, 'evaluation_avg.json')
         with open(evaluation_path, 'w') as jfile:
-            json.dump(avg_evaluation_dict, jfile)
+            json.dump(avg_evaluation_dict, jfile, indent=4)
             LOGGER.info(
                 f'\tEvaluation results for average model saved to {evaluation_path}')
 
@@ -375,6 +376,8 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
     LOGGER.info(
         f'Training all models and average model took '
         f'{train_full_end_time - training_full_start_time} seconds')
+    with open(f'{model_folder}/duration_seconds.txt', 'w') as txtfile:
+        txtfile.write(str(train_full_end_time - training_full_start_time))
 
 
 if __name__ == '__main__':
