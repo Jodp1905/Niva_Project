@@ -26,17 +26,19 @@ logging.basicConfig(
 LOGGER = logging.getLogger(__name__)
 
 # Model hyperparameters
-ITERATIONS_PER_EPOCH = 50
-NUM_EPOCHS = 5
-BATCH_SIZE = 4
-N_CLASSES = 2
-N_FOLDS = 10
-TF_FULL_PROFILING = False
-PREFETCH_DATA = False
-ENABLE_DATA_SHARDING = True
-CHKPT_FOLDER = None
-INPUT_SHAPE = [256, 256, 4]
-MODEL_NAME = "resunet-a"
+HYPER_PARAM_CONFIG = {
+    "iterations_per_epoch": 50,
+    "num_epochs": 5,
+    "batch_size": 4,
+    "n_classes": 2,
+    "n_folds": 10,
+    "tf_full_profiling": False,
+    "prefetch_data": False,
+    "enable_data_sharding": True,
+    "chkpt_folder": None,
+    "input_shape": [256, 256, 4],
+    "model_name": "resunet-a"
+}
 
 # Timezone parameters
 UPDATE_FREQ = 'epoch'
@@ -101,7 +103,7 @@ class CustomTensorBoard(tf.keras.callbacks.TensorBoard):
             logs (dict): Dictionary of logs, containing the current training metrics.
         """
         super().on_train_begin(logs)
-        if TF_FULL_PROFILING:
+        if HYPER_PARAM_CONFIG['tf_full_profiling']:
             tf.profiler.experimental.start(self.log_dir)
             LOGGER.info(f"Full Profiler started at {self.log_dir}")
 
@@ -114,7 +116,7 @@ class CustomTensorBoard(tf.keras.callbacks.TensorBoard):
         Args:
             logs (dict): Dictionary of logs, containing the final training metrics.
         """
-        if TF_FULL_PROFILING:
+        if HYPER_PARAM_CONFIG['tf_full_profiling']:
             tf.profiler.experimental.stop()
             LOGGER.info(
                 f"Full Profiler stopped and data saved to {self.log_dir}")
@@ -220,14 +222,13 @@ def initialise_model(input_shape, model_config, chkpt_folder=None):
     return model
 
 
-def initialise_callbacks(model_folder, fold, model_config):
+def initialise_callbacks(model_folder, fold):
     """
     Initialize callbacks for model training.
 
     Args:
         model_folder (str): The folder path where the model will be saved.
         fold (int): The fold number.
-        model_config (dict): The model configuration.
 
     Returns:
         tuple: A tuple containing the model path and a list of callbacks.
@@ -247,11 +248,12 @@ def initialise_callbacks(model_folder, fold, model_config):
     )
 
     checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
-        checkpoints_path, save_best_only=True, save_freq='epoch', save_weights_only=True)
-    performance_callback = PerformanceLoggingCallback(log_dir=logs_path)
+        checkpoints_path,
+        save_best_only=True,
+        save_freq='epoch',
+        save_weights_only=True)
 
-    with open(f'{model_path}/model_cfg.json', 'w') as jfile:
-        json.dump(model_config, jfile)
+    performance_callback = PerformanceLoggingCallback(log_dir=logs_path)
 
     callbacks = [tensorboard_callback,
                  checkpoint_callback, performance_callback]
@@ -268,9 +270,9 @@ def load_and_process_dataset(dataset_folder, fold, batch_size):
     dataset_path = os.path.join(dataset_folder, f'fold_{fold}')
     dataset = tf.data.Dataset.load(dataset_path)
     dataset = dataset.batch(batch_size)
-    if ENABLE_DATA_SHARDING:
+    if HYPER_PARAM_CONFIG['enable_data_sharding']:
         dataset = set_auto_shard_policy(dataset)
-    if PREFETCH_DATA:
+    if HYPER_PARAM_CONFIG['prefetch_data']:
         dataset = dataset.prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
     return dataset
 
@@ -278,6 +280,14 @@ def load_and_process_dataset(dataset_folder, fold, batch_size):
 def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
                   batch_size, iterations_per_epoch, num_epochs,
                   model_name, n_folds, model_config):
+
+    # Dump hyperparameters to json
+    with open(f'{model_folder}/hyperparameters.json', 'w') as jfile:
+        json.dump(HYPER_PARAM_CONFIG, jfile)
+
+    # Dump model configuration to json
+    with open(f'{model_folder}/model_cfg.json', 'w') as jfile:
+        json.dump(model_config, jfile)
 
     training_full_start_time = time.time()
     LOGGER.info('Loading K TF datasets')
@@ -317,12 +327,13 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
             model = initialise_model(
                 input_shape, model_config, chkpt_folder=chkpt_folder)
             model_path, callbacks, logs_path = initialise_callbacks(
-                model_folder, testing_id[0], model_config)
+                model_folder, testing_id[0])
             LOGGER.info(f'\tTraining model, writing to {model_path}')
             try:
                 model.net.fit(ds_train,
                               validation_data=ds_val,
                               epochs=num_epochs,
+                              # TODO Perhaps don't set steps_per_epoch and let it iterate over the dataset
                               steps_per_epoch=iterations_per_epoch,
                               callbacks=callbacks)
             except Exception as e:
@@ -350,8 +361,6 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
     if not os.path.exists(model_path):
         os.makedirs(model_path)
     checkpoints_path = os.path.join(model_path, 'checkpoints', 'model.ckpt')
-    with open(f'{model_path}/model_cfg.json', 'w+') as jfile:
-        json.dump(model_config, jfile)
     avg_model.net.save_weights(checkpoints_path)
 
     for _, testing_id in folds_ids_list:
@@ -368,6 +377,19 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
 
 
 if __name__ == '__main__':
-    train_k_folds(DATASET_FOLDER, MODEL_FOLDER, CHKPT_FOLDER, INPUT_SHAPE,
-                  BATCH_SIZE, ITERATIONS_PER_EPOCH, NUM_EPOCHS, MODEL_NAME,
-                  N_FOLDS, MODEL_CONFIG)
+    if len(sys.argv) < 2:
+        LOGGER.error('Usage: python training.py <model_name>')
+        exit(1)
+    model_name = sys.argv[1]
+    model_folder = os.path.join(MODEL_FOLDER, model_name)
+    os.makedirs(model_folder, exist_ok=True)
+    train_k_folds(DATASET_FOLDER,
+                  model_folder,
+                  HYPER_PARAM_CONFIG['chkpt_folder'],
+                  HYPER_PARAM_CONFIG['input_shape'],
+                  HYPER_PARAM_CONFIG['batch_size'],
+                  HYPER_PARAM_CONFIG['iterations_per_epoch'],
+                  HYPER_PARAM_CONFIG['num_epochs'],
+                  HYPER_PARAM_CONFIG['model_name'],
+                  HYPER_PARAM_CONFIG['n_folds'],
+                  MODEL_CONFIG)
