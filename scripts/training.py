@@ -282,7 +282,6 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
         ds_folds_train = [ds_folds[tid] for tid in folds_train]
         ds_train = reduce(tf.data.Dataset.concatenate, ds_folds_train)
         ds_val = ds_folds[fold_val]
-        # TODO repeat without argument repeats indefinitely, to investigate
         ds_train = ds_train.repeat()
 
         # Perform fitting using the strategy scope
@@ -292,19 +291,24 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
                 input_shape, model_config, chkpt_folder=chkpt_folder)
             model_path, callbacks = initialise_callbacks(
                 model_folder, testing_id[0])
-            LOGGER.info(f'\tTraining model, writing to {model_path}')
             init_end = time.time()
+            init_duration = init_end - init_start
+            LOGGER.info(f'\tTraining model, writing to {model_path}')
+
+            # Fit model
+            fitting_start_time = time.time()
             try:
-                fitting_start_time = time.time()
                 model.net.fit(ds_train,
                               validation_data=ds_val,
                               epochs=num_epochs,
-                              # TODO Perhaps don't set steps_per_epoch and let it iterate over the dataset
+                              # TODO steps per epoch are linked to the dataset infinite repeat
                               steps_per_epoch=iterations_per_epoch,
                               callbacks=callbacks)
-                fitting_end_time = time.time()
             except Exception as e:
-                LOGGER.error(f"Exception during training: {e}")
+                LOGGER.error(f'Error while fitting model: {e}')
+                exit(1)
+            fitting_end_time = time.time()
+            fitting_duration = fitting_end_time - fitting_start_time
 
             # Append model and model path to model list
             models.append(model)
@@ -315,26 +319,25 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
             testing_start_time = time.time()
             evaluation = model.net.evaluate(ds_folds[testing_id[0]])
             testing_end_time = time.time()
+            testing_duration = testing_end_time - testing_start_time
             evaluation_dict = dict(zip(model.net.metrics_names, evaluation))
-            LOGGER.info(
-                f'\tEvaluation time: {testing_end_time - testing_start_time} seconds')
             evaluation_path = os.path.join(model_path, 'evaluation.json')
             with open(evaluation_path, 'w') as jfile:
                 json.dump(evaluation_dict, jfile, indent=4)
             LOGGER.info(f'\tEvaluation results saved to {model_path}')
 
             # Registering fold configuration and training duration
-            init_duration = init_end - init_start
-            fitting_duration = fitting_end_time - fitting_start_time
-            testing_duration = testing_end_time - testing_start_time
-            LOGGER.info(
-                f'\tModel init duration: {init_duration} seconds'
-                f'\tModel fitting duration: {fitting_duration} seconds'
-                f'\tModel testing duration: {testing_duration} seconds')
+            fold_duration = init_duration + fitting_duration + testing_duration
+            LOGGER.info(f'\n'
+                        f'Fold {testing_id[0]} completed in {fold_duration} seconds \n'
+                        f'Model init duration: {init_duration} seconds \n'
+                        f'Model fitting duration: {fitting_duration} seconds \n'
+                        f'Model testing duration: {testing_duration} seconds \n')
             fold_infos = {
                 'testing_fold': testing_id[0],
                 'training_folds': folds_train,
-                'validation_fold': fold_val,
+                'validation_fold': int(fold_val),
+                'fold_duration': fold_duration,
                 'init_duration': init_duration,
                 'fitting_duration': fitting_duration,
                 'testing_duration': testing_duration
