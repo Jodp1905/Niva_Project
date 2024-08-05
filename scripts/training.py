@@ -29,12 +29,12 @@ LOGGER = logging.getLogger(__name__)
 # Model hyperparameters
 HYPER_PARAM_CONFIG = {
     "iterations_per_epoch": 50,
-    "num_epochs": 2,
+    "num_epochs": 5,
     "batch_size": 4,
     "n_classes": 2,
     "n_folds": 10,
     "tf_full_profiling": False,
-    "prefetch_data": False,
+    "prefetch_data": True,
     "enable_data_sharding": True,
     "chkpt_folder": None,
     "input_shape": [256, 256, 4],
