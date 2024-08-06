@@ -386,6 +386,9 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
 
 
 if __name__ == '__main__':
+    if NIVA_PROJECT_DATA_ROOT is None:
+        LOGGER.error('NIVA_PROJECT_DATA_ROOT environment variable not set')
+        exit(1)
     if len(sys.argv) != 2:
         LOGGER.error('Usage: python training.py <model_name>')
         exit(1)
