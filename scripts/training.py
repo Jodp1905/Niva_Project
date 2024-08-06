@@ -9,6 +9,7 @@ import pytz
 import sys
 import psutil
 import time
+import pandas as pd
 
 from eoflow.models.segmentation_base import segmentation_metrics
 from eoflow.models.losses import TanimotoDistanceLoss
@@ -33,7 +34,7 @@ HYPER_PARAM_CONFIG = {
     "n_classes": 2,
     "n_folds": 10,
     "tf_full_profiling": False,
-    "prefetch_data": False,
+    "prefetch_data": True,
     "enable_data_sharding": True,
     "chkpt_folder": None,
     "input_shape": [256, 256, 4],
@@ -72,72 +73,28 @@ MODEL_CONFIG = {
 }
 
 
-class CustomTensorBoard(tf.keras.callbacks.TensorBoard):
-    """
-    CustomTensorBoard is a subclass of tf.keras.callbacks.TensorBoard.
-    It extends the functionality of TensorBoard by adding profiling capabilities.
-
-    Args:
-        log_dir (str): The directory where the TensorBoard logs will be saved.
-        **kwargs: Additional keyword arguments to be passed to the base class constructor.
-
-    Attributes:
-        log_dir (str): The directory where the TensorBoard logs will be saved.
-
-    Methods:
-        on_train_begin(logs=None): Called at the beginning of training.
-        on_train_end(logs=None): Called at the end of training.
-    """
-
-    def __init__(self, log_dir, **kwargs):
-        super().__init__(log_dir=log_dir, **kwargs)
-        self.log_dir = log_dir
-
-    def on_train_begin(self, logs=None):
-        """
-        Called at the beginning of training.
-
-        If TF_PROFILING is enabled, starts the profiler and logs a message.
-
-        Args:
-            logs (dict): Dictionary of logs, containing the current training metrics.
-        """
-        super().on_train_begin(logs)
-        if HYPER_PARAM_CONFIG['tf_full_profiling']:
-            tf.profiler.experimental.start(self.log_dir)
-            LOGGER.info(f"Full Profiler started at {self.log_dir}")
-
-    def on_train_end(self, logs=None):
-        """
-        Called at the end of training.
-
-        If TF_PROFILING is enabled, stops the profiler and logs a message.
-
-        Args:
-            logs (dict): Dictionary of logs, containing the final training metrics.
-        """
-        if HYPER_PARAM_CONFIG['tf_full_profiling']:
-            tf.profiler.experimental.stop()
-            LOGGER.info(
-                f"Full Profiler stopped and data saved to {self.log_dir}")
-        super().on_train_end(logs)
-
-
 class PerformanceLoggingCallback(tf.keras.callbacks.Callback):
-    def __init__(self, log_dir):
+    def __init__(self, model_path):
         super().__init__()
-        self.log_dir = log_dir
-        self.writer = tf.summary.create_file_writer(log_dir)
+        self.model_path = model_path
+        self.writer = tf.summary.create_file_writer(model_path)
         self.epoch_start_time = None
         self.batch_start_time = None
+        self.batch_data = []
+        self.epoch_data = []
+        self.model_size = None
 
     def on_train_begin(self, logs=None):
         mem_info = psutil.virtual_memory()
         total_memory_gb = mem_info.total / (1024 ** 3)  # in GB
+        model_size_gb = self.calculate_model_size_gb()
+        self.model_size = model_size_gb
 
         with self.writer.as_default():
             tf.summary.scalar('Memory/Total_memory_GB',
                               total_memory_gb, step=0)
+            tf.summary.scalar('Model_size_GB',
+                              model_size_gb, step=0)
             self.writer.flush()
 
     def on_epoch_begin(self, epoch, logs=None):
@@ -150,8 +107,6 @@ class PerformanceLoggingCallback(tf.keras.callbacks.Callback):
         rss_memory_gb = mem_info.rss / (1024 ** 3)  # in GB
         vms_memory_gb = mem_info.vms / (1024 ** 3)  # in GB
 
-        model_size_gb = self.calculate_model_size_gb()
-
         with self.writer.as_default():
             tf.summary.scalar(
                 'Performance/Epoch_duration_seconds', epoch_duration, step=epoch)
@@ -159,30 +114,36 @@ class PerformanceLoggingCallback(tf.keras.callbacks.Callback):
                               rss_memory_gb, step=epoch)
             tf.summary.scalar('Memory/VMS_memory_GB',
                               vms_memory_gb, step=epoch)
-            tf.summary.scalar('Model/Model_size_GB', model_size_gb, step=epoch)
             self.writer.flush()
+
+        epoch_data_entry = {
+            'epoch': epoch,
+            'epoch_duration': epoch_duration,
+            'rss_memory_gb': rss_memory_gb,
+            'vms_memory_gb': vms_memory_gb,
+            **(logs or {})
+        }
+        self.epoch_data.append(epoch_data_entry)
 
     def on_train_batch_begin(self, batch, logs=None):
         self.batch_start_time = time.time()
 
     def on_train_batch_end(self, batch, logs=None):
         batch_duration = time.time() - self.batch_start_time
-        process = psutil.Process(os.getpid())
-        mem_info = process.memory_info()
-        rss_memory_gb = mem_info.rss / (1024 ** 3)  # in GB
-        vms_memory_gb = mem_info.vms / (1024 ** 3)  # in GB
 
-        model_size_gb = self.calculate_model_size_gb()
+        batch_data_entry = {
+            'batch': batch,
+            'batch_duration': batch_duration,
+            **(logs or {})
+        }
+        self.batch_data.append(batch_data_entry)
 
-        with self.writer.as_default():
-            tf.summary.scalar(
-                'Performance/Batch_duration_seconds', batch_duration, step=batch)
-            tf.summary.scalar('Memory/RSS_memory_GB',
-                              rss_memory_gb, step=batch)
-            tf.summary.scalar('Memory/VMS_memory_GB',
-                              vms_memory_gb, step=batch)
-            tf.summary.scalar('Model/Model_size_GB', model_size_gb, step=batch)
-            self.writer.flush()
+    def on_train_end(self, logs=None):
+        epoch_data_path = os.path.join(self.model_path, 'epoch_data.csv')
+        pd.DataFrame(self.epoch_data).to_csv(epoch_data_path, index=False)
+        batch_data_path = os.path.join(self.model_path, 'batch_data.csv')
+        pd.DataFrame(self.batch_data).to_csv(batch_data_path, index=False)
+        super().on_train_end(logs)
 
     def calculate_model_size_gb(self):
         model_size_bytes = sum([tf.size(variable).numpy(
@@ -242,7 +203,7 @@ def initialise_callbacks(model_folder, fold):
     logs_path = os.path.join(model_path, 'logs')
     checkpoints_path = os.path.join(model_path, 'checkpoints', 'model.ckpt')
 
-    tensorboard_callback = CustomTensorBoard(
+    tensorboard_callback = tf.keras.callbacks.TensorBoard(
         log_dir=logs_path,
         update_freq=UPDATE_FREQ,
     )
@@ -253,11 +214,11 @@ def initialise_callbacks(model_folder, fold):
         save_freq='epoch',
         save_weights_only=True)
 
-    performance_callback = PerformanceLoggingCallback(log_dir=logs_path)
+    performance_callback = PerformanceLoggingCallback(model_path=model_path)
 
-    callbacks = [tensorboard_callback,
-                 checkpoint_callback, performance_callback]
-    return model_path, callbacks, logs_path
+    callbacks = [tensorboard_callback, checkpoint_callback,
+                 performance_callback]
+    return model_path, callbacks
 
 
 def set_auto_shard_policy(dataset):
@@ -281,16 +242,17 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
                   batch_size, iterations_per_epoch, num_epochs,
                   model_name, n_folds, model_config):
 
-    # Dump hyperparameters to json
-    with open(f'{model_folder}/hyperparameters.json', 'w') as jfile:
-        json.dump(HYPER_PARAM_CONFIG, jfile)
-
-    # Dump model configuration to json
-    with open(f'{model_folder}/model_cfg.json', 'w') as jfile:
-        json.dump(model_config, jfile)
-
     training_full_start_time = time.time()
+
+    # Dump hyperparameters and model configuration to json
+    with open(f'{model_folder}/hyperparameters.json', 'w') as jfile:
+        json.dump(HYPER_PARAM_CONFIG, jfile, indent=4)
+    with open(f'{model_folder}/model_cfg.json', 'w') as jfile:
+        json.dump(model_config, jfile, indent=4)
+
     LOGGER.info('Loading K TF datasets')
+
+    # Creating datasets for each fold
     ds_folds = []
     for fold in range(1, n_folds + 1):
         dataset = load_and_process_dataset(dataset_folder, fold, batch_size)
@@ -303,6 +265,7 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
     models = []
     model_paths = []
 
+    # Defining strategy for distributed training
     strategy = tf.distribute.MirroredStrategy()
     num_workers = strategy.num_replicas_in_sync
     devices = strategy.extended.worker_devices
@@ -311,73 +274,122 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
 
     for training_ids, testing_id in folds_ids_list:
 
+        # Select training and validation datasets
         fold_val = np.random.choice(training_ids)
         folds_train = [tid for tid in training_ids if tid != fold_val]
         LOGGER.info(
             f'\tTrain folds {folds_train}, Val fold: {fold_val}, Test fold: {testing_id[0]}')
-
         ds_folds_train = [ds_folds[tid] for tid in folds_train]
         ds_train = reduce(tf.data.Dataset.concatenate, ds_folds_train)
         ds_val = ds_folds[fold_val]
-        # TODO repeat without argument repeats indefinitely, memory leak
         ds_train = ds_train.repeat()
 
+        # Perform fitting using the strategy scope
         with strategy.scope():
-            training_start_time = time.time()
+            init_start = time.time()
             model = initialise_model(
                 input_shape, model_config, chkpt_folder=chkpt_folder)
-            model_path, callbacks, logs_path = initialise_callbacks(
+            model_path, callbacks = initialise_callbacks(
                 model_folder, testing_id[0])
+            init_end = time.time()
+            init_duration = init_end - init_start
             LOGGER.info(f'\tTraining model, writing to {model_path}')
+
+            # Fit model
+            fitting_start_time = time.time()
             try:
                 model.net.fit(ds_train,
                               validation_data=ds_val,
                               epochs=num_epochs,
-                              # TODO Perhaps don't set steps_per_epoch and let it iterate over the dataset
+                              # TODO steps per epoch are linked to the dataset infinite repeat
                               steps_per_epoch=iterations_per_epoch,
                               callbacks=callbacks)
             except Exception as e:
-                LOGGER.error(f"Exception during training: {e}")
-            training_end_time = time.time()
+                LOGGER.error(f'Error while fitting model: {e}')
+                exit(1)
+            fitting_end_time = time.time()
+            fitting_duration = fitting_end_time - fitting_start_time
+
+            # Append model and model path to model list
             models.append(model)
             model_paths.append(model_path)
-            LOGGER.info(
-                f'\tModel trained and saved to {model_path} for evaluation on fold {testing_id[0]}'
-                f'\n\tTraining time: {training_end_time - training_start_time} seconds')
 
+            # Evaluate model on left-out fold
+            LOGGER.info(f'Evaluating model on left-out fold {testing_id[0]}')
+            testing_start_time = time.time()
+            evaluation = model.net.evaluate(ds_folds[testing_id[0]])
+            testing_end_time = time.time()
+            testing_duration = testing_end_time - testing_start_time
+            evaluation_dict = dict(zip(model.net.metrics_names, evaluation))
+            evaluation_path = os.path.join(model_path, 'evaluation.json')
+            with open(evaluation_path, 'w') as jfile:
+                json.dump(evaluation_dict, jfile, indent=4)
+            LOGGER.info(f'\tEvaluation results saved to {model_path}')
+
+            # Registering fold configuration and training duration
+            fold_duration = init_duration + fitting_duration + testing_duration
+            model_size = callbacks[-1].model_size
+            LOGGER.info(f'\n'
+                        f'Fold {testing_id[0]} completed in {fold_duration} seconds \n'
+                        f'Model init duration: {init_duration} seconds \n'
+                        f'Model fitting duration: {fitting_duration} seconds \n'
+                        f'Model testing duration: {testing_duration} seconds \n')
+            fold_infos = {
+                'testing_fold': testing_id[0],
+                'training_folds': folds_train,
+                'validation_fold': int(fold_val),
+                'model_size_gb': model_size,
+                'fold_duration': fold_duration,
+                'init_duration': init_duration,
+                'fitting_duration': fitting_duration,
+                'testing_duration': testing_duration
+            }
+            fold_data_path = os.path.join(model_path, 'fold_infos.json')
+            with open(fold_data_path, 'w') as jfile:
+                json.dump(fold_infos, jfile, indent=4)
+
+    # Creating average model
     LOGGER.info('Create average model')
     weights = [model.net.get_weights() for model in models]
     avg_weights = [np.array([np.array(w).mean(axis=0) for w in zip(*weights_list_tuple)])
                    for weights_list_tuple in zip(*weights)]
-
     avg_model = initialise_model(input_shape, model_config)
     avg_model.net.set_weights(avg_weights)
-
     now = datetime.now(TIMEZONE).isoformat(
         sep='-', timespec='seconds').replace(':', '-')
     model_path = f'{model_folder}/{model_name}_avg_{now}'
-
     LOGGER.info('Save average model to local path')
     if not os.path.exists(model_path):
         os.makedirs(model_path)
     checkpoints_path = os.path.join(model_path, 'checkpoints', 'model.ckpt')
     avg_model.net.save_weights(checkpoints_path)
 
+    # Evaluate average model on all folds
     for _, testing_id in folds_ids_list:
-        LOGGER.info(f'Evaluating model on left-out fold {testing_id[0]}')
-        model = models[testing_id[0]]
-        model.net.evaluate(ds_folds[testing_id[0]])
         LOGGER.info(
             f'Evaluating average model on left-out fold {testing_id[0]}')
-        avg_model.net.evaluate(ds_folds[testing_id[0]])
-        LOGGER.info('\n\n')
+        avg_evaluation = avg_model.net.evaluate(ds_folds[testing_id[0]])
+        avg_evaluation_dict = dict(
+            zip(avg_model.net.metrics_names, avg_evaluation))
+        evaluation_path = os.path.join(model_path, 'evaluation_avg.json')
+        with open(evaluation_path, 'w') as jfile:
+            json.dump(avg_evaluation_dict, jfile, indent=4)
+            LOGGER.info(
+                f'\tEvaluation results for average model saved to {evaluation_path}')
+
     train_full_end_time = time.time()
     LOGGER.info(
-        f'Training all models and average model took {train_full_end_time - training_full_start_time} seconds')
+        f'Training all models and average model took '
+        f'{train_full_end_time - training_full_start_time} seconds')
+    with open(f'{model_folder}/duration_seconds.txt', 'w') as txtfile:
+        txtfile.write(str(train_full_end_time - training_full_start_time))
 
 
 if __name__ == '__main__':
-    if len(sys.argv) < 2:
+    if NIVA_PROJECT_DATA_ROOT is None:
+        LOGGER.error('NIVA_PROJECT_DATA_ROOT environment variable not set')
+        exit(1)
+    if len(sys.argv) != 2:
         LOGGER.error('Usage: python training.py <model_name>')
         exit(1)
     model_name = sys.argv[1]
