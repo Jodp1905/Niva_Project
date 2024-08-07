@@ -17,9 +17,10 @@ DARSHAN_MODMEM=20000
 USE_MPI=false
 
 usage() {
-  echo "Usage: $(basename $0) [-b] [-t] <run_name>"
+  echo "Usage: $(basename $0) [-b] [-t] [--with_darshan_dir <dir>] <run_name>"
   echo "  -b    Build dataset option"
   echo "  -t    Trace training execution"
+  echo "  --with_darshan_dir  Specify the Darshan install directory"
   echo "  <run_name>  Name of the run, used for output files"
   exit 1
 }
@@ -27,27 +28,38 @@ usage() {
 # Initialize flags
 build_flag=false
 trace_flag=false
+custom_darshan_dir=false
 
-# Parse command line options
-while getopts ':bt' opt; do
-  case "$opt" in
-  b)
+# Custom argument parsing
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+  -b)
     build_flag=true
+    shift
     ;;
-  t)
+  -t)
     trace_flag=true
+    shift
     ;;
-  :)
-    echo "Option -$OPTARG requires an argument."
+  --with_darshan_dir)
+    if [[ -n "$2" && "$2" != -* ]]; then
+      DARSHAN_DIR="$2"
+      custom_darshan_dir=true
+      shift 2
+    else
+      echo "Invalid argument: $2"
+      usage
+    fi
+    ;;
+  -*)
+    echo "Invalid option: $1"
     usage
     ;;
-  ?)
-    echo "Invalid option: -$OPTARG"
-    usage
+  *)
+    break
     ;;
   esac
 done
-shift "$((OPTIND - 1))"
 
 # Check for run name argument
 if [ "$#" -ne 1 ]; then
@@ -84,18 +96,31 @@ fi
 # Run training
 if $trace_flag; then
   # Prepare Darshan environment
-  module load Intel-oneAPI-HPC-Toolkit/mpi/latest
-  module load darshan/3.4.4/darshan-runtime
-  module load darshan/3.4.4/darshan-util
-  echo $LD_LIBRARY_PATH
-  darshan_install_path=$(dirname $(dirname $(which darshan-config)))
-  darshan_lib_path="${darshan_install_path}/lib/libdarshan.so"
+
+  # Custom Darshan directory
+  if [ "$custom_darshan_dir" = true ]; then
+    echo "Using custom Darshan directory: ${DARSHAN_DIR}"
+    darshan_lib_path="${DARSHAN_DIR}/lib/libdarshan.so"
+
+  # Module loaded Darshan library
+  else
+    echo "Using module loaded Darshan library."
+    module load Intel-oneAPI-HPC-Toolkit/mpi/latest
+    module load darshan/3.4.4/darshan-runtime
+    module load darshan/3.4.4/darshan-util
+    darshan_install_path=$(dirname $(dirname $(which darshan-config)))
+    darshan_lib_path="${darshan_install_path}/lib/libdarshan.so"
+  fi
+
+  # Verify Darshan library path
   if [ ! -f "${darshan_lib_path}" ]; then
-    echo "Error: Darshan library not found at ${darshan_lib_path}"
+    echo "Error: libdarshan.so not found at ${darshan_lib_path}"
     exit 1
   else
     echo "Darshan library path: ${darshan_lib_path}"
   fi
+
+  # Set Darshan environment variables
   export DARSHAN_EXCLUDE_DIRS="${PYTHON_VENV_PATH}"
   export DARSHAN_MODMEM="${DARSHAN_MODMEM}"
   darshan_log_dir="${DARSHAN_LOGS_DIR}/${run_name}"
@@ -109,7 +134,7 @@ if $trace_flag; then
   # Run training with Darshan tracing
   echo "Trace flag is set, executing training with Darshan tracing for ${run_name}."
   training_path=$(realpath "${PYTHON_SCRIPT_DIR}/training.py")
-  echo "Training script path: ${training_path}"
+  echo "Training script path: ${training_path} with preloaded Darshan library."
   env LD_PRELOAD="${darshan_lib_path}" python3 "${training_path}" "${run_name}"
 
 else
