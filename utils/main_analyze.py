@@ -6,6 +6,7 @@ import argparse
 import json
 import logging
 import re
+from pathlib import Path
 
 # Configure logging
 stdout_handler = logging.StreamHandler(sys.stdout)
@@ -14,6 +15,10 @@ logging.basicConfig(
     level=logging.INFO, format="[%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s", handlers=handlers
 )
 LOGGER = logging.getLogger(__name__)
+
+# Paths parameters
+NIVA_PROJECT_DATA_ROOT = os.getenv('NIVA_PROJECT_DATA_ROOT')
+MODEL_FOLDER = Path(f'{NIVA_PROJECT_DATA_ROOT}/model/')
 
 def extract_fold_number(fold_path):
     # Extract the fold number from the folder name
@@ -158,19 +163,20 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Process CSV, txt and json files in a folder, save plots, and generate a summary report.")
 
     # Add arguments needed
-    parser.add_argument('folder_path', help="Path to the folder containing CSV files for each fold.")
+    parser.add_argument('folder_name', help="Path to the folder containing CSV files for each fold.")
 
     # Parse the arguments
     args = parser.parse_args()
 
     # Generate the output text file name based on the last folder name
-    folder_name = os.path.basename(os.path.normpath(args.folder_path))
-    output_txt_path = os.path.join(args.folder_path, f"{folder_name}_experience_analyze.txt")
+    folder_name = args.folder_name
+    folder_path = os.path.join(MODEL_FOLDER, folder_name)
+    output_txt_path = os.path.join(folder_path, f"{folder_name}_experience_analyze.txt")
 
     # Call read function 
-    save_ploted_training_data(args.folder_path)
+    save_ploted_training_data(folder_path)
 
     # Save all information to a text file
-    save_all_information_to_txt(args.folder_path, output_txt_path)
+    save_all_information_to_txt(folder_path, output_txt_path)
 
     logging.info(f"Summary report saved to {output_txt_path}")
