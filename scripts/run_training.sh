@@ -20,7 +20,7 @@ usage() {
   echo "Usage: $(basename $0) [-b] [-t] [--with_darshan_dir <dir>] <run_name>"
   echo "  -b    Build dataset option"
   echo "  -t    Trace training execution"
-  echo "  --with_darshan_dir  Specify the Darshan install directory"
+  echo "  --with_darshan_lib_dir  Specify the folder containing the Darshan library"
   echo "  <run_name>  Name of the run, used for output files"
   exit 1
 }
@@ -28,9 +28,9 @@ usage() {
 # Initialize flags
 build_flag=false
 trace_flag=false
-custom_darshan_dir=false
+with_darshan_lib_dir=false
 
-# Custom argument parsing
+# Parse options
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
   -b)
@@ -41,10 +41,10 @@ while [[ "$#" -gt 0 ]]; do
     trace_flag=true
     shift
     ;;
-  --with_darshan_dir)
+  --with_darshan_lib_dir)
     if [[ -n "$2" && "$2" != -* ]]; then
-      DARSHAN_DIR="$2"
-      custom_darshan_dir=true
+      DARSHAN_LIB_DIR="$2"
+      with_darshan_lib_dir=true
       shift 2
     else
       echo "Invalid argument: $2"
@@ -97,11 +97,10 @@ fi
 if $trace_flag; then
   # Prepare Darshan environment
 
-  # Custom Darshan directory
-  if [ "$custom_darshan_dir" = true ]; then
-    echo "Using custom Darshan directory: ${DARSHAN_DIR}"
-    darshan_lib_path="${DARSHAN_DIR}/lib/libdarshan.so"
-
+  # With Darshan library directory
+  if [ "$with_darshan_lib_dir" = true ]; then
+    echo "Using Darshan library under ${DARSHAN_LIB_DIR}"
+    darshan_lib_path="${DARSHAN_LIB_DIR}/libdarshan.so"
   # Module loaded Darshan library
   else
     echo "Using module loaded Darshan library."
@@ -117,19 +116,17 @@ if $trace_flag; then
     echo "Error: libdarshan.so not found at ${darshan_lib_path}"
     exit 1
   else
-    echo "Darshan library path: ${darshan_lib_path}"
+    echo "Darshan library found at ${darshan_lib_path}"
   fi
 
   # Set Darshan environment variables
   export DARSHAN_EXCLUDE_DIRS="${PYTHON_VENV_PATH}"
   export DARSHAN_MODMEM="${DARSHAN_MODMEM}"
-  darshan_log_dir="${DARSHAN_LOGS_DIR}/${run_name}"
-  mkdir -p "${darshan_log_dir}"
-  export DARSHAN_LOGPATH=$darshan_log_dir
-  echo "Darshan log directory: ${darshan_log_dir}"
   if [ "$USE_MPI" = "false" ]; then
     export DARSHAN_ENABLE_NONMPI=1
   fi
+  darshan_logdir=$(darshan-config --log-path)
+  echo "Darshan log directory: ${darshan_logdir}"
 
   # Run training with Darshan tracing
   echo "Trace flag is set, executing training with Darshan tracing for ${run_name}."
