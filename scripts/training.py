@@ -33,6 +33,7 @@ HYPER_PARAM_CONFIG = {
     "batch_size": 4,
     "n_classes": 2,
     "n_folds": 10,
+    "use_all_training_data": False,
     "tf_full_profiling": False,
     "prefetch_data": True,
     "enable_data_sharding": True,
@@ -282,7 +283,9 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
         ds_folds_train = [ds_folds[tid] for tid in folds_train]
         ds_train = reduce(tf.data.Dataset.concatenate, ds_folds_train)
         ds_val = ds_folds[fold_val]
-        ds_train = ds_train.repeat()
+        if HYPER_PARAM_CONFIG['use_all_training_data'] is False:
+            # repeat dataset only if not using all training data
+            ds_train = ds_train.repeat()
 
         # Perform fitting using the strategy scope
         with strategy.scope():
@@ -298,12 +301,19 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
             # Fit model
             fitting_start_time = time.time()
             try:
-                model.net.fit(ds_train,
-                              validation_data=ds_val,
-                              epochs=num_epochs,
-                              # TODO steps per epoch are linked to the dataset infinite repeat
-                              steps_per_epoch=iterations_per_epoch,
-                              callbacks=callbacks)
+                if HYPER_PARAM_CONFIG['use_all_training_data'] is True:
+                    # fit wihout specifying steps_per_epoch
+                    model.net.fit(ds_train,
+                                  validation_data=ds_val,
+                                  epochs=num_epochs,
+                                  callbacks=callbacks)
+                else:
+                    # fit with steps_per_epoch
+                    model.net.fit(ds_train,
+                                  validation_data=ds_val,
+                                  epochs=num_epochs,
+                                  steps_per_epoch=iterations_per_epoch,
+                                  callbacks=callbacks)
             except Exception as e:
                 LOGGER.error(f'Error while fitting model: {e}')
                 exit(1)
