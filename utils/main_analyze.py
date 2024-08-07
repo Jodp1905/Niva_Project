@@ -23,7 +23,7 @@ MODEL_FOLDER = Path(f'{NIVA_PROJECT_DATA_ROOT}/model/')
 def extract_fold_number(fold_path):
     # Extract the fold number from the folder name
     match = re.search(r'fold-(\d+)', os.path.basename(fold_path))
-    return match.group(1) if match else 'unknown'
+    return int(match.group(1)) if match else -1
 
 def plot_epoch_data(epoch_data_path, output_path, fold_number):
     # Load data from epoch_data.csv
@@ -90,6 +90,9 @@ def save_ploted_training_data(folder_path):
     # Gather all fold paths
     fold_paths = [os.path.join(folder_path, f) for f in os.listdir(folder_path) if f.startswith('fold')]
     
+    # Sort fold paths by fold number
+    fold_paths = sorted(fold_paths, key=extract_fold_number)
+    
     for fold_path in fold_paths:
         fold_number = extract_fold_number(fold_path)
         
@@ -132,6 +135,18 @@ def get_model_config(file_path):
         model_config = json.load(file)
     return model_config
 
+def get_fold_evaluation(file_path):
+    # Read evaluation data from JSON file
+    with open(file_path, 'r') as file:
+        evaluation = json.load(file)
+    return evaluation
+
+def get_fold_info(file_path):
+    # Read fold info from JSON file
+    with open(file_path, 'r') as file:
+        fold_info = json.load(file)
+    return fold_info
+
 def save_all_information_to_txt(folder_path, output_txt_path):
     with open(output_txt_path, 'w') as txt_file:
         # Training duration
@@ -148,6 +163,28 @@ def save_all_information_to_txt(folder_path, output_txt_path):
         model_cfg_file = os.path.join(folder_path, 'model_cfg.json')
         model_config = get_model_config(model_cfg_file)
         txt_file.write(f"Model Configuration:\n{json.dumps(model_config, indent=4)}\n\n")
+        
+        # Information from each fold
+        fold_paths = [os.path.join(folder_path, f) for f in os.listdir(folder_path) if f.startswith('fold')]
+        
+        # Sort fold paths by fold number
+        fold_paths = sorted(fold_paths, key=extract_fold_number)
+        
+        for fold_path in fold_paths:
+            fold_number = extract_fold_number(fold_path)
+            txt_file.write(f"Fold {fold_number} Information:\n\n")
+            
+            # Evaluation data
+            evaluation_file = os.path.join(fold_path, 'evaluation.json')
+            if os.path.exists(evaluation_file):
+                evaluation = get_fold_evaluation(evaluation_file)
+                txt_file.write(f"Evaluation Data (Fold {fold_number}):\n{json.dumps(evaluation, indent=4)}\n\n")
+            
+            # Fold info data
+            fold_info_file = os.path.join(fold_path, 'fold_infos.json')
+            if os.path.exists(fold_info_file):
+                fold_info = get_fold_info(fold_info_file)
+                txt_file.write(f"Fold Info Data (Fold {fold_number}):\n{json.dumps(fold_info, indent=4)}\n\n")
         
         # Information from the "average" model
         avg_model_folder = os.path.join(folder_path, 'resunet-a_avg_2024-08-06-05-11-34+02-00')
