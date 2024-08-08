@@ -37,7 +37,7 @@ EOTASK_BUFFER = int(os.getenv('BUFFER', 0))
 EOTASK_PATCH_SIZE = int(os.getenv('PATCH_SIZE', 64))
 EOTASK_NUM_SAMPLES = int(os.getenv('NUM_SAMPLES', 20))
 EOTASK_MAX_RETRIES = int(os.getenv('MAX_RETRIES', 100))
-EOTASK_FRACTION_VALID = int(os.getenv('FRACTION_VALID', 0.4))
+EOTASK_FRACTION_VALID = float(os.getenv('FRACTION_VALID', 0.4))
 EOTASK_SAMPLED_FEATURE_NAME = os.getenv('SAMPLED_FEATURE_NAME', 'BANDS')
 PROCESS_POOL_WORKERS = int(os.getenv('PROCESS_POOL_WORKERS', os.cpu_count()))
 
@@ -144,6 +144,12 @@ class SamplePatchlets(EOTask):
             ratio = 0.0 if self.sample_positive else 1
             retry_count = 0
             new_eopatch = EOPatch(timestamp=eopatch.timestamp)
+
+            if not self._area_fraction_condition(ratio):
+                print(f'Could not determine an area with good enough ratio '
+                      f'of valid sampled pixels for '
+                      f'patchlet number: {patchlet_num}')
+                continue
 
             while self._area_fraction_condition(ratio) and retry_count < self.max_retries:
                 if n_rows - self.patch_size - self.buffer <= 0 \
