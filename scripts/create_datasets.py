@@ -34,6 +34,50 @@ NUM_SHARDS = int(os.getenv('NUM_SHARDS', 35))
 USE_FILE_SHARDING = False
 
 
+def describe_tf_dataset(dataset, dataset_name, message, num_batches=5):
+    """
+    Print and log a summary of a TensorFlow dataset.
+
+    :param dataset: tf.data.Dataset to describe.
+    :param num_batches: Number of batches to inspect for summary statistics.
+    :param dataset_name: Name of the dataset to use in the log file name.
+    """
+    LOGGER.debug(f"Inspection of dataset {dataset_name} : {message}")
+    LOGGER.debug("Dataset description:")
+    LOGGER.debug(f"Type: {type(dataset)}")
+    try:
+        length = sum(1 for _ in dataset)
+        LOGGER.debug(f"Number of elements (length): {length}")
+    except:
+        LOGGER.debug(
+            "Number of elements (length): Unable to determine (infinite or dynamically generated dataset)")
+    LOGGER.debug(f"Taking a look at the first {num_batches} batches:")
+    for i, batch in enumerate(dataset.take(num_batches)):
+        LOGGER.debug(f"\nBatch {i+1} summary:")
+        inspect_structure(batch)
+        if i+1 >= num_batches:
+            break
+
+
+def inspect_structure(element, prefix=''):
+    """
+    Recursively inspect the structure of dataset elements and log the information.
+    """
+    if isinstance(element, tf.Tensor):
+        LOGGER.debug(f"{prefix}Shape: {element.shape}, Dtype: {element.dtype}")
+        LOGGER.debug(f"{prefix}First element data: {element.numpy()[0]}")
+    elif isinstance(element, dict):
+        for key, value in element.items():
+            LOGGER.debug(f"{prefix}{key}:")
+            inspect_structure(value, prefix='  ' + prefix)
+    elif isinstance(element, (tuple, list)):
+        for i, value in enumerate(element):
+            LOGGER.debug(f"{prefix}Element {i}:")
+            inspect_structure(value, prefix='  ' + prefix)
+    else:
+        LOGGER.debug(f"{prefix}Unsupported element type: {type(element)}")
+
+
 def get_dataset(fold_folder, metadata_path, fold, augment,
                 augmentations_features, augmentations_label,
                 num_parallel, randomize=True):
@@ -63,7 +107,8 @@ def get_dataset(fold_folder, metadata_path, fold, augment,
                               fold=fold,
                               randomize=randomize,
                               num_parallel=num_parallel)
-
+    if LOGGER.level == logging.DEBUG:
+        describe_tf_dataset(dataset, f"fold_{fold}", "Before augmentation")
     normalizer = NORMALIZER["to_medianstd"]
 
     augmentations = [augment_data(
@@ -77,6 +122,13 @@ def get_dataset(fold_folder, metadata_path, fold, augment,
 
     for dataset_op in dataset_ops:
         dataset = dataset.map(dataset_op, num_parallel_calls=AUTOTUNE)
+        if LOGGER.level == logging.DEBUG:
+            op_str = dataset_op.__name__ if hasattr(
+                dataset_op, '__name__') else str(dataset_op)
+            describe_tf_dataset(dataset, f"fold_{fold}", f"After {op_str}")
+
+    if LOGGER.level == logging.DEBUG:
+        describe_tf_dataset(dataset, f"fold_{fold}", "After all operations")
     return dataset
 
 
@@ -156,8 +208,16 @@ def save_datasets_parallel(folds_folder, metadata_path, dataset_folder,
 
 
 def create_datasets():
-    save_datasets_parallel(FOLDS_FOLDER, METADATA_PATH, DATASET_FOLDER,
-                           AUGMENTATIONS_FEATURES, AUGMENTATIONS_LABEL, N_FOLDS)
+    if LOGGER.level == logging.DEBUG:
+        # sequential for debugging
+        LOGGER.debug("Warning: Debug mode enabled, running sequentially")
+        for fold in range(1, N_FOLDS + 1):
+            save_dataset(FOLDS_FOLDER, METADATA_PATH, DATASET_FOLDER, fold,
+                         AUGMENTATIONS_FEATURES, AUGMENTATIONS_LABEL, AUTOTUNE)
+    else:
+        # parallel otherwise
+        save_datasets_parallel(FOLDS_FOLDER, METADATA_PATH, DATASET_FOLDER,
+                               AUGMENTATIONS_FEATURES, AUGMENTATIONS_LABEL, N_FOLDS)
 
 
 if __name__ == '__main__':
