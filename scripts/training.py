@@ -357,6 +357,8 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
             fold_data_path = os.path.join(model_path, 'fold_infos.json')
             with open(fold_data_path, 'w') as jfile:
                 json.dump(fold_infos, jfile, indent=4)
+        LOGGER.info(f'Fold {testing_id[0]} completed')
+    LOGGER.info('All folds completed')
 
     # Creating average model
     LOGGER.info('Create average model')
