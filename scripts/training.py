@@ -22,24 +22,28 @@ stdout_handler = logging.StreamHandler(sys.stdout)
 stdout_handler.addFilter(LogFileFilter())
 handlers = [stdout_handler]
 logging.basicConfig(
-    level=logging.INFO, format="[%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s", handlers=handlers
+    level=logging.INFO,
+    format="[%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s",
+    handlers=handlers
 )
 LOGGER = logging.getLogger(__name__)
 
 # Model hyperparameters
 HYPER_PARAM_CONFIG = {
-    "iterations_per_epoch": 50,
-    "num_epochs": 5,
-    "batch_size": 4,
+    "num_epochs": 5,                    # Number of full passes through the dataset
+    "batch_size": 4,                    # Number of samples processed per batch
+    # Number of classes in the dataset (2 for binary labels)
     "n_classes": 2,
-    "n_folds": 10,
-    "use_all_training_data": False,
-    "tf_full_profiling": False,
-    "prefetch_data": True,
-    "enable_data_sharding": True,
-    "chkpt_folder": None,
-    "input_shape": [256, 256, 4],
-    "model_name": "resunet-a"
+    "n_folds": 10,                      # Number of folds for cross-validation
+    "use_all_training_data": False,     # If False, uses iterations_per_epoch
+    "iterations_per_epoch": 50,         # Number of batches processed per epoch
+    # TODO : full_profiling eats all available memory, implement periodic flushing
+    "tf_full_profiling": False,         # Enable full profiling with TensorBoard
+    "prefetch_data": True,              # Enable data prefetching runtime optimization
+    "enable_data_sharding": True,       # Enable data sharding runtime optimization
+    "chkpt_folder": None,               # Path to the folder containing model checkpoint
+    "input_shape": [256, 256, 4],       # Shape of the input images
+    "model_name": "resunet-a"           # Name of the model
 }
 
 # Timezone parameters
@@ -51,7 +55,7 @@ NIVA_PROJECT_DATA_ROOT = os.getenv('NIVA_PROJECT_DATA_ROOT')
 DATASET_FOLDER = Path(f'{NIVA_PROJECT_DATA_ROOT}/datasets/')
 MODEL_FOLDER = Path(f'{NIVA_PROJECT_DATA_ROOT}/model/')
 
-# Model configuration
+# Model configuration (should not be changed)
 MODEL_CONFIG = {
     "learning_rate": 0.0001,
     "n_layers": 3,
@@ -75,6 +79,52 @@ MODEL_CONFIG = {
 
 
 class PerformanceLoggingCallback(tf.keras.callbacks.Callback):
+    """
+    Callback for logging performance metrics during training.
+
+    Args:
+        model_path (str): The path to save the model and log files.
+
+    Attributes:
+        model_path (str): The path to save the model and log files.
+        writer (tf.summary.FileWriter): The file writer for writing summary logs.
+        epoch_start_time (float): The start time of the current epoch.
+        batch_start_time (float): The start time of the current batch.
+        batch_data (list): List to store batch data.
+        epoch_data (list): List to store epoch data.
+        model_size (float): The size of the model in GB.
+
+    Methods:
+        on_train_begin(logs=None):
+            Called at the beginning of training.
+            Logs the total memory and model size.
+
+        on_epoch_begin(epoch, logs=None):
+            Called at the beginning of each epoch.
+            Sets the start time of the epoch.
+
+        on_epoch_end(epoch, logs=None):
+            Called at the end of each epoch.
+            Logs the epoch duration, RSS memory, and VMS memory.
+            Appends epoch data to epoch_data list.
+
+        on_train_batch_begin(batch, logs=None):
+            Called at the beginning of each training batch.
+            Sets the start time of the batch.
+
+        on_train_batch_end(batch, logs=None):
+            Called at the end of each training batch.
+            Logs the batch duration.
+            Appends batch data to batch_data list.
+
+        on_train_end(logs=None):
+            Called at the end of training.
+            Saves the epoch data and batch data to CSV files.
+
+        calculate_model_size_gb():
+            Calculates the size of the model in GB.
+    """
+
     def __init__(self, model_path):
         super().__init__()
         self.model_path = model_path
@@ -223,17 +273,41 @@ def initialise_callbacks(model_folder, fold):
 
 
 def set_auto_shard_policy(dataset):
+    """
+    Sets the auto shard policy for the given dataset to DATA.
+
+    Parameters:
+        dataset (tf.data.Dataset): The input dataset.
+
+    Returns:
+        tf.data.Dataset: The dataset with the auto shard policy set.
+    """
     options = tf.data.Options()
     options.experimental_distribute.auto_shard_policy = tf.data.experimental.AutoShardPolicy.DATA
     return dataset.with_options(options)
 
 
 def load_and_process_dataset(dataset_folder, fold, batch_size):
+    """
+    Loads and processes a dataset from the specified folder and fold.
+    Apply runtime optimizations : batch, shard, prefetch.
+
+    Args:
+        dataset_folder (str): The path to the dataset folder.
+        fold (int): The fold number.
+        batch_size (int): The batch size for the dataset.
+
+    Returns:
+        tf.data.Dataset: The loaded and processed dataset.
+    """
     dataset_path = os.path.join(dataset_folder, f'fold_{fold}')
     dataset = tf.data.Dataset.load(dataset_path)
+    # batch
     dataset = dataset.batch(batch_size)
+    # shard
     if HYPER_PARAM_CONFIG['enable_data_sharding']:
         dataset = set_auto_shard_policy(dataset)
+    # prefetch
     if HYPER_PARAM_CONFIG['prefetch_data']:
         dataset = dataset.prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
     return dataset
@@ -242,7 +316,25 @@ def load_and_process_dataset(dataset_folder, fold, batch_size):
 def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
                   batch_size, iterations_per_epoch, num_epochs,
                   model_name, n_folds, model_config):
+    """
+    Trains a model using k-fold cross-validation, and performs evaluation on the left-out fold.
+    At the end, an average model is created and evaluated on all folds.
 
+    Args:
+        dataset_folder (str): The path to the folder containing the dataset.
+        model_folder (str): The path to the folder where the trained models will be saved.
+        chkpt_folder (str): The path to the folder where the model checkpoints will be saved.
+        input_shape (tuple): The shape of the input data.
+        batch_size (int): The batch size for training.
+        iterations_per_epoch (int): The number of iterations per epoch.
+        num_epochs (int): The number of epochs to train for.
+        model_name (str): The name of the model.
+        n_folds (int): The number of folds for cross-validation.
+        model_config (dict): The configuration of the model.
+
+    Returns:
+        None
+    """
     training_full_start_time = time.time()
 
     # Dump hyperparameters and model configuration to json
@@ -389,6 +481,7 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
             LOGGER.info(
                 f'\tEvaluation results for average model saved to {evaluation_path}')
 
+    # Save training duration
     train_full_end_time = time.time()
     LOGGER.info(
         f'Training all models and average model took '
