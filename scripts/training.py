@@ -234,23 +234,16 @@ def initialise_model(input_shape, model_config, chkpt_folder=None):
     return model
 
 
-def initialise_callbacks(model_folder, fold):
+def initialise_callbacks(model_path):
     """
     Initialize callbacks for model training.
 
     Args:
-        model_folder (str): The folder path where the model will be saved.
-        fold (int): The fold number.
+        model_path (str): The path to save the model and log files.
 
     Returns:
-        tuple: A tuple containing the model path and a list of callbacks.
-
+        list: List of callbacks for model training.
     """
-    timestamp = datetime.now(TIMEZONE)
-    now = f"{timestamp.day}-{timestamp.month}-{timestamp.hour}-{timestamp.minute}"
-    model_path = f'{model_folder}/fold-{fold}_{now}'
-
-    os.makedirs(model_path, exist_ok=True)
     logs_path = os.path.join(model_path, 'logs')
     checkpoints_path = os.path.join(model_path, 'checkpoints', 'model.ckpt')
 
@@ -269,7 +262,7 @@ def initialise_callbacks(model_folder, fold):
 
     callbacks = [tensorboard_callback, checkpoint_callback,
                  performance_callback]
-    return model_path, callbacks
+    return callbacks
 
 
 def set_auto_shard_policy(dataset):
@@ -313,9 +306,46 @@ def load_and_process_dataset(dataset_folder, fold, batch_size):
     return dataset
 
 
+def prepare_fold_configurations(n_folds, model_path, seed=42):
+    """
+    Prepare fold configurations for n-fold cross-validation.
+
+    Args:
+        n_folds (int): Number of folds for cross-validation.
+        model_path (str): Path to the model directory.
+
+    Returns:
+        list: List of dictionaries containing fold configurations.
+            Each dictionary contains the following keys:
+            - 'testing_fold': The index of the testing fold.
+            - 'validation_fold': The index of the validation fold.
+            - 'training_folds': List of indices of the training folds.
+            - 'model_fold_path': Path to the model directory for the testing fold.
+    """
+    folds = list(range(n_folds))
+    folds_ids_list = [folds[:nf] + folds[1 + nf:] for nf in folds]
+    fold_configurations = []
+    for i in range(n_folds):
+        testing_fold = folds[i]
+        model_fold_path = os.path.join(model_path, f'fold-{testing_fold}')
+        os.makedirs(model_fold_path, exist_ok=True)
+        np.random.seed(seed)
+        validation_fold = int(np.random.choice(folds_ids_list[i]))
+        training_folds = [tid for tid in folds_ids_list[i]
+                          if tid != validation_fold]
+        fold_entry = {
+            'testing_fold': testing_fold,
+            'validation_fold': validation_fold,
+            'training_folds': training_folds,
+            'model_fold_path': model_fold_path
+        }
+        fold_configurations.append(fold_entry)
+    return fold_configurations
+
+
 def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
                   batch_size, iterations_per_epoch, num_epochs,
-                  model_name, n_folds, model_config):
+                  model_name, n_folds, model_config, start_fold=0):
     """
     Trains a model using k-fold cross-validation, and performs evaluation on the left-out fold.
     At the end, an average model is created and evaluated on all folds.
@@ -331,6 +361,7 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
         model_name (str): The name of the model.
         n_folds (int): The number of folds for cross-validation.
         model_config (dict): The configuration of the model.
+        start_fold (int): The fold from which to resume the training (default is 0).
 
     Returns:
         None
@@ -345,36 +376,41 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
 
     LOGGER.info('Loading K TF datasets')
 
-    # Creating datasets for each fold
+    # Create datasets for each fold
     ds_folds = []
     for fold in range(1, n_folds + 1):
         dataset = load_and_process_dataset(dataset_folder, fold, batch_size)
         ds_folds.append(dataset)
 
-    folds = list(range(n_folds))
-    folds_ids_list = [(folds[:nf] + folds[1 + nf:], [nf]) for nf in folds]
-    np.random.seed()
-
+    # Prepare fold configurations
+    fold_configurations = prepare_fold_configurations(n_folds)
     models = []
-    model_paths = []
 
-    # Defining strategy for distributed training
+    # Define strategy for distributed training
     strategy = tf.distribute.MirroredStrategy()
     num_workers = strategy.num_replicas_in_sync
     devices = strategy.extended.worker_devices
     LOGGER.info(
         f"Number of devices (workers): {num_workers}\nDevices: {devices}")
 
-    for training_ids, testing_id in folds_ids_list:
+    for i, (fold_entry) in enumerate(fold_configurations):
+        if i < start_fold:
+            LOGGER.info(f'Skipping fold {i + 1} as it was already completed.')
+            continue
 
-        # Select training and validation datasets
-        fold_val = np.random.choice(training_ids)
-        folds_train = [tid for tid in training_ids if tid != fold_val]
+        # Set up training and validation datasets
+        fold_val = fold_entry['validation_fold']
+        folds_train = fold_entry['training_folds']
+        fold_test = fold_entry['testing_fold']
+        model_path = fold_entry['model_fold_path']
+
         LOGGER.info(
-            f'\tTrain folds {folds_train}, Val fold: {fold_val}, Test fold: {testing_id[0]}')
+            f'\tTrain folds {folds_train}, Val fold: {fold_val}, Test fold: {fold_test}')
+
         ds_folds_train = [ds_folds[tid] for tid in folds_train]
         ds_train = reduce(tf.data.Dataset.concatenate, ds_folds_train)
         ds_val = ds_folds[fold_val]
+
         if HYPER_PARAM_CONFIG['use_all_training_data'] is False:
             # repeat dataset only if not using all training data
             ds_train = ds_train.repeat()
@@ -384,8 +420,7 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
             init_start = time.time()
             model = initialise_model(
                 input_shape, model_config, chkpt_folder=chkpt_folder)
-            model_path, callbacks = initialise_callbacks(
-                model_folder, testing_id[0])
+            callbacks = initialise_callbacks(model_path)
             init_end = time.time()
             init_duration = init_end - init_start
             LOGGER.info(f'\tTraining model, writing to {model_path}')
@@ -394,7 +429,7 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
             fitting_start_time = time.time()
             try:
                 if HYPER_PARAM_CONFIG['use_all_training_data'] is True:
-                    # fit wihout specifying steps_per_epoch
+                    # fit without specifying steps_per_epoch
                     model.net.fit(ds_train,
                                   validation_data=ds_val,
                                   epochs=num_epochs,
@@ -412,14 +447,13 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
             fitting_end_time = time.time()
             fitting_duration = fitting_end_time - fitting_start_time
 
-            # Append model and model path to model list
+            # Append model to model list
             models.append(model)
-            model_paths.append(model_path)
 
             # Evaluate model on left-out fold
-            LOGGER.info(f'Evaluating model on left-out fold {testing_id[0]}')
+            LOGGER.info(f'Evaluating model on left-out fold {fold_test}')
             testing_start_time = time.time()
-            evaluation = model.net.evaluate(ds_folds[testing_id[0]])
+            evaluation = model.net.evaluate(ds_folds[fold_test])
             testing_end_time = time.time()
             testing_duration = testing_end_time - testing_start_time
             evaluation_dict = dict(zip(model.net.metrics_names, evaluation))
@@ -432,14 +466,14 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
             fold_duration = init_duration + fitting_duration + testing_duration
             model_size = callbacks[-1].model_size
             LOGGER.info(f'\n'
-                        f'Fold {testing_id[0]} completed in {fold_duration} seconds \n'
+                        f'Fold {fold_test} completed in {fold_duration} seconds \n'
                         f'Model init duration: {init_duration} seconds \n'
                         f'Model fitting duration: {fitting_duration} seconds \n'
                         f'Model testing duration: {testing_duration} seconds \n')
             fold_infos = {
-                'testing_fold': testing_id[0],
+                'testing_fold': fold_test,
                 'training_folds': folds_train,
-                'validation_fold': int(fold_val),
+                'validation_fold': fold_val,
                 'model_size_gb': model_size,
                 'fold_duration': fold_duration,
                 'init_duration': init_duration,
@@ -449,7 +483,7 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
             fold_data_path = os.path.join(model_path, 'fold_infos.json')
             with open(fold_data_path, 'w') as jfile:
                 json.dump(fold_infos, jfile, indent=4)
-        LOGGER.info(f'Fold {testing_id[0]} completed')
+        LOGGER.info(f'Fold {fold_test} completed')
     LOGGER.info('All folds completed')
 
     # Creating average model
@@ -469,10 +503,11 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
     avg_model.net.save_weights(checkpoints_path)
 
     # Evaluate average model on all folds
-    for _, testing_id in folds_ids_list:
+    for fold_entry in fold_configurations:
+        testing_id = fold_entry['testing_fold']
         LOGGER.info(
-            f'Evaluating average model on left-out fold {testing_id[0]}')
-        avg_evaluation = avg_model.net.evaluate(ds_folds[testing_id[0]])
+            f'Evaluating average model on left-out fold {testing_id}')
+        avg_evaluation = avg_model.net.evaluate(ds_folds[testing_id])
         avg_evaluation_dict = dict(
             zip(avg_model.net.metrics_names, avg_evaluation))
         evaluation_path = os.path.join(model_path, 'evaluation_avg.json')
@@ -510,3 +545,4 @@ if __name__ == '__main__':
                   HYPER_PARAM_CONFIG['model_name'],
                   HYPER_PARAM_CONFIG['n_folds'],
                   MODEL_CONFIG)
+    LOGGER.info('Training completed')
