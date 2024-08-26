@@ -33,7 +33,7 @@ HYPER_PARAM_CONFIG = {
     # Number of full passes through the dataset
     "num_epochs": 20,
     # Number of samples processed per batch
-    "batch_size": 4,
+    "batch_size": 8,
     # Number of classes in the dataset (2 for binary labels)
     "n_classes": 2,
     # Number of folds for cross-validation
@@ -482,15 +482,13 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
                                   validation_data=ds_val,
                                   epochs=num_epochs,
                                   steps_per_epoch=iterations_per_epoch,
-                                  callbacks=callbacks,
-                                  verbose=2)
+                                  callbacks=callbacks)
                 else:
                     # fit without steps_per_epoch and iterate over the full dataset
                     model.net.fit(ds_train,
                                   validation_data=ds_val,
                                   epochs=num_epochs,
-                                  callbacks=callbacks,
-                                  verbose=2)
+                                  callbacks=callbacks)
             except Exception as e:
                 LOGGER.error(f'Error while fitting model: {e}')
                 exit(1)
