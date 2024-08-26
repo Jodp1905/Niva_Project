@@ -30,20 +30,32 @@ LOGGER = logging.getLogger(__name__)
 
 # Model hyperparameters
 HYPER_PARAM_CONFIG = {
-    "num_epochs": 5,                    # Number of full passes through the dataset
-    "batch_size": 4,                    # Number of samples processed per batch
+    # Number of full passes through the dataset
+    "num_epochs": 20,
+    # Number of samples processed per batch
+    "batch_size": 4,
     # Number of classes in the dataset (2 for binary labels)
     "n_classes": 2,
-    "n_folds": 10,                      # Number of folds for cross-validation
-    "use_all_training_data": False,     # If False, uses iterations_per_epoch
-    "iterations_per_epoch": 50,         # Number of batches processed per epoch
+    # Number of folds for cross-validation
+    "n_folds": 10,
+    # If True, repeats dataset and use iterations_per_epoch during model fit
+    "repeat_dataset": False,
+    # Number of batches processed per epoch, used only if repeat_dataset is True
+    # Should correspond to the number of samples in a training fold dataset
+    "iterations_per_epoch": ((9 / 10) * (2000 * 6)) // 4,
     # TODO : full_profiling eats all available memory, implement periodic flushing
-    "tf_full_profiling": False,         # Enable full profiling with TensorBoard
-    "prefetch_data": True,              # Enable data prefetching runtime optimization
-    "enable_data_sharding": True,       # Enable data sharding runtime optimization
-    "chkpt_folder": None,               # Path to the folder containing model checkpoint
-    "input_shape": [256, 256, 4],       # Shape of the input images
-    "model_name": "resunet-a"           # Name of the model
+    # Enable detailed profiling/tracing with TensorBoard
+    "tf_full_profiling": False,
+    # Enable data prefetching runtime optimization
+    "prefetch_data": True,
+    # Enable data sharding runtime optimization
+    "enable_data_sharding": True,
+    # Path to the folder containing model checkpoint
+    "chkpt_folder": None,
+    # Shape of the input images
+    "input_shape": [256, 256, 4],
+    # Name of the model
+    "model_name": "resunet-a"
 }
 
 # Timezone parameters
@@ -343,6 +355,28 @@ def prepare_fold_configurations(n_folds, model_path, seed=42):
     return fold_configurations
 
 
+def get_dataset_size(dataset: tf.data.Dataset,
+                     img_count: bool = True) -> int:
+    """
+    Returns the number of elements in a dataset.
+
+    Args:
+        dataset (tf.data.Dataset): The dataset.
+        img_count (bool, optional): If True, returns the number of images.
+            If False, returns the number of samples. Defaults to True.
+
+    Returns:
+        int: The number of elements in the dataset.
+    """
+    num_samples = dataset.reduce(0, lambda x, _: x + 1).numpy()
+    if img_count is False:
+        return num_samples
+    else:
+        batch_size_global = HYPER_PARAM_CONFIG['batch_size']
+        num_imgs = num_samples * batch_size_global
+        return num_imgs
+
+
 def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
                   batch_size, iterations_per_epoch, num_epochs,
                   model_name, n_folds, model_config, start_fold=0):
@@ -378,12 +412,20 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
 
     # Create datasets for each fold
     ds_folds = []
+    sample_count = 0
     for fold in range(1, n_folds + 1):
         dataset = load_and_process_dataset(dataset_folder, fold, batch_size)
+        dataset_size = get_dataset_size(dataset, img_count=False)
+        LOGGER.info(f'Loaded fold {fold} with {dataset_size} samples')
+        sample_count += dataset_size
         ds_folds.append(dataset)
+    LOGGER.info(f'Loaded {sample_count} samples in total')
+    img_count = sample_count * batch_size
+    LOGGER.info(
+        f'With a batch size of {batch_size}, this corresponds to {img_count} images')
 
     # Prepare fold configurations
-    fold_configurations = prepare_fold_configurations(n_folds)
+    fold_configurations = prepare_fold_configurations(n_folds, model_folder)
     models = []
 
     # Define strategy for distributed training
@@ -404,14 +446,20 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
         fold_test = fold_entry['testing_fold']
         model_path = fold_entry['model_fold_path']
 
-        LOGGER.info(
-            f'\tTrain folds {folds_train}, Val fold: {fold_val}, Test fold: {fold_test}')
-
         ds_folds_train = [ds_folds[tid] for tid in folds_train]
         ds_train = reduce(tf.data.Dataset.concatenate, ds_folds_train)
         ds_val = ds_folds[fold_val]
 
-        if HYPER_PARAM_CONFIG['use_all_training_data'] is False:
+        df_train_size = get_dataset_size(ds_train, img_count=True)
+        df_val_size = get_dataset_size(ds_val, img_count=True)
+        df_test_size = get_dataset_size(ds_folds[fold_test], img_count=True)
+        LOGGER.info(
+            f'Step {i + 1}/{n_folds} \n'
+            f'Train folds {folds_train}\n\tsize: {df_train_size} images \n'
+            f'Val fold: {fold_val}\n\tsize: {df_val_size} images \n'
+            f'Test fold: {fold_test}\n\tsize: {df_test_size} images')
+
+        if HYPER_PARAM_CONFIG['repeat_dataset'] is True:
             # repeat dataset only if not using all training data
             ds_train = ds_train.repeat()
 
@@ -428,18 +476,18 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
             # Fit model
             fitting_start_time = time.time()
             try:
-                if HYPER_PARAM_CONFIG['use_all_training_data'] is True:
-                    # fit without specifying steps_per_epoch
-                    model.net.fit(ds_train,
-                                  validation_data=ds_val,
-                                  epochs=num_epochs,
-                                  callbacks=callbacks)
-                else:
-                    # fit with steps_per_epoch
+                if HYPER_PARAM_CONFIG['repeat_dataset'] is True:
+                    # fit with steps_per_epoch as we repeat the dataset
                     model.net.fit(ds_train,
                                   validation_data=ds_val,
                                   epochs=num_epochs,
                                   steps_per_epoch=iterations_per_epoch,
+                                  callbacks=callbacks)
+                else:
+                    # fit without steps_per_epoch and iterate over the full dataset
+                    model.net.fit(ds_train,
+                                  validation_data=ds_val,
+                                  epochs=num_epochs,
                                   callbacks=callbacks)
             except Exception as e:
                 LOGGER.error(f'Error while fitting model: {e}')
@@ -531,7 +579,6 @@ if __name__ == '__main__':
         exit(1)
     if len(sys.argv) != 2:
         LOGGER.error('Usage: python training.py <model_name>')
-        exit(1)
     model_name = sys.argv[1]
     model_folder = os.path.join(MODEL_FOLDER, model_name)
     os.makedirs(model_folder, exist_ok=True)
