@@ -482,13 +482,15 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
                                   validation_data=ds_val,
                                   epochs=num_epochs,
                                   steps_per_epoch=iterations_per_epoch,
-                                  callbacks=callbacks)
+                                  callbacks=callbacks,
+                                  verbose=2)
                 else:
                     # fit without steps_per_epoch and iterate over the full dataset
                     model.net.fit(ds_train,
                                   validation_data=ds_val,
                                   epochs=num_epochs,
-                                  callbacks=callbacks)
+                                  callbacks=callbacks,
+                                  verbose=2)
             except Exception as e:
                 LOGGER.error(f'Error while fitting model: {e}')
                 exit(1)
