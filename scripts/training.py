@@ -31,9 +31,9 @@ LOGGER = logging.getLogger(__name__)
 # Model hyperparameters
 HYPER_PARAM_CONFIG = {
     # Number of full passes through the dataset
-    "num_epochs": 20,
+    "num_epochs": int(os.getenv('NUM_EPOCHS', 20)),
     # Number of samples processed per batch
-    "batch_size": 8,
+    "batch_size": int(os.getenv('BATCH_SIZE', 8)),
     # Number of classes in the dataset (2 for binary labels)
     "n_classes": 2,
     # Number of folds for cross-validation
@@ -42,7 +42,7 @@ HYPER_PARAM_CONFIG = {
     "repeat_dataset": False,
     # Number of batches processed per epoch, used only if repeat_dataset is True
     # Should correspond to the number of samples in a training fold dataset
-    "iterations_per_epoch": ((9 / 10) * (2000 * 6)) // 4,
+    "iterations_per_epoch": int(os.getenv('ITERATIONS_PER_EPOCH', 2500)),
     # TODO : full_profiling eats all available memory, implement periodic flushing
     # Enable detailed profiling/tracing with TensorBoard
     "tf_full_profiling": False,
