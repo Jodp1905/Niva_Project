@@ -22,40 +22,10 @@ export DARSHAN_ENABLE_NONMPI=1                    # Enable Darshan for non-MPI a
 # Modules setup (for lab machines)
 module load Intel-oneAPI-HPC-Toolkit/mpi/latest || true
 
-usage() {
-  echo "Usage: traced_training.sh [-b] <run_name>"
-  echo "  -b    Build dataset option"
-  echo "  <run_name>  Name of the run, used for output files"
-  echo ""
-  echo "Required environment variables:"
-  echo "  NIVA_PROJECT_DATA_ROOT  Root directory for project data"
-  echo "  DARSHAN_LIBPATH  Path to libdarshan.so, used for preloading Python scripts"
-  exit 1
-}
-
-# Initialize flags
-build_flag=false
-
-# Parse options
-while [[ "$#" -gt 0 ]]; do
-  case "$1" in
-  -b)
-    build_flag=true
-    shift
-    ;;
-  -*)
-    echo "Invalid option: $1"
-    usage
-    ;;
-  *)
-    break
-    ;;
-  esac
-done
-
 # Check environment variables
 if [ -z "$NIVA_PROJECT_DATA_ROOT" ]; then
   echo "Error: Environment variable NIVA_PROJECT_DATA_ROOT is not set."
+  echo "Please set it to the root directory of ai4boundary project data containing the 'sentinel2' directory."
   exit 1
 else
   echo "Project data root directory: ${NIVA_PROJECT_DATA_ROOT}"
@@ -63,6 +33,7 @@ fi
 
 if [ -z "$DARSHAN_LIBPATH" ]; then
   echo "Error: Environment variable DARSHAN_LIBPATH is not set."
+  echo "Please set it to the path of the Darshan library (libdarshan.so)."
   exit 1
 elif [ ! -f "$DARSHAN_LIBPATH" ]; then
   echo "Error: DARSHAN_LIBPATH is not a valid file: $DARSHAN_LIBPATH"
@@ -73,13 +44,6 @@ fi
 
 # Activate Python virtual environment
 source "${PYTHON_VENV_PATH}/bin/activate"
-
-# Create dataset if build flag is set
-if $build_flag; then
-  echo "Build flag is set, creating dataset."
-  python3 "${PYTHON_SCRIPT_DIR}/main_preprocessing.py"
-  echo "Dataset created."
-fi
 
 # Setup output directory
 job_id=$SLURM_JOB_ID
