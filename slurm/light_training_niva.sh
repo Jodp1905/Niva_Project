@@ -10,11 +10,12 @@
 #SBATCH --cpus-per-task 32
 #SBATCH --nodelist=x440-05
 
-# Activate python virtual environment
-source /home/jrisse/activate_venv.sh
+# Parameters
+PYTHON_VENV_PATH="/home/jrisse/venv-niva"
+PYTHON_SCRIPT_DIR="/home/jrisse/niva/Niva_Project/scripts"
 
-# Run preprocessing
-# python3 /home/jrisse/niva/Niva_Project/scripts/main_preprocessing.py
+# Activate python virtual environment
+source $PYTHON_VENV_PATH/bin/activate
 
 # Set environment variables
 export NUM_EPOCHS=1
@@ -22,4 +23,4 @@ export NUM_EPOCHS=1
 # Run training
 slurm_jobid=$SLURM_JOB_ID
 training_name="light_training_${slurm_jobid}"
-python3 /home/jrisse/niva/Niva_Project/scripts/training.py $training_name
+python3 $PYTHON_SCRIPT_DIR/training.py $training_name
