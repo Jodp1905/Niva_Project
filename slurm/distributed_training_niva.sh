@@ -53,4 +53,6 @@ exit 0
 source /home/jrisse/activate_venv.sh
 
 # Run training
-python3 /home/jrisse/niva/Niva_Project/scripts/training.py full_dataset_26_08_2024
+slurm_jobid=$SLURM_JOB_ID
+training_name="distributed_training_${slurm_jobid}"
+python3 /home/jrisse/niva/Niva_Project/scripts/training.py $training_name

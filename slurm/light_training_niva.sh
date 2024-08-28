@@ -3,8 +3,8 @@
 #
 #SBATCH --job-name=training_niva
 #SBATCH --time=120:00:00
-#SBATCH --output=training_niva_full_dataset_%j.out
-#SBATCH --error=training_niva_full_dataset_%j.out
+#SBATCH --output=training_niva_light_%j.out
+#SBATCH --error=training_niva_light_%j.out
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task 32
@@ -20,4 +20,6 @@ source /home/jrisse/activate_venv.sh
 export NUM_EPOCHS=1
 
 # Run training
-python3 /home/jrisse/niva/Niva_Project/scripts/training.py full_dataset_26_08_2024
+slurm_jobid=$SLURM_JOB_ID
+training_name="light_training_${slurm_jobid}"
+python3 /home/jrisse/niva/Niva_Project/scripts/training.py $training_name

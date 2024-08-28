@@ -53,13 +53,6 @@ while [[ "$#" -gt 0 ]]; do
   esac
 done
 
-# Get required arguments
-if [ "$#" -ne 1 ]; then
-  echo "Error: Exactly 1 argument required."
-  usage
-fi
-run_name="$1"
-
 # Check environment variables
 if [ -z "$NIVA_PROJECT_DATA_ROOT" ]; then
   echo "Error: Environment variable NIVA_PROJECT_DATA_ROOT is not set."
@@ -89,6 +82,8 @@ if $build_flag; then
 fi
 
 # Setup output directory
+job_id=$SLURM_JOB_ID
+run_name="trace_training_${job_id}"
 niva_project_data_root_sanitized="${NIVA_PROJECT_DATA_ROOT%/}"
 output_dir="${niva_project_data_root_sanitized}/model/${run_name}"
 output_dir=$(realpath "${output_dir}")
