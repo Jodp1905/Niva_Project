@@ -69,8 +69,8 @@ elif TRAINING_TYPE_ENV == TrainingType.MultiWorker.name:
     hostname = socket.gethostname()
     LOGGER.info(
         f"\n\n========================== Strategy Summary ==========================\n"
-        f"MultiWorkerMirroredStrategy selected with {num_workers} workers on {hostname}\n"
-        f"Devices: {devices}"
+        f"[{hostname}] MultiWorkerMirroredStrategy selected with {num_workers} workers.\n"
+        f"Devices: {devices}\n"
         f"TF_CONFIG: {TF_CONFIG_DICT}")
 else:
     LOGGER.error(
@@ -549,10 +549,10 @@ def train_k_folds(
             # repeat dataset only if not using all training data
             ds_train = ds_train.repeat()
 
-        # If the strategy is MultiWorker, wrap the datasets in a DistributedDataset
-        if type(strategy) == tf.distribute.MultiWorkerMirroredStrategy:
-            ds_train = strategy.experimental_distribute_dataset(ds_train)
-            ds_val = strategy.experimental_distribute_dataset(ds_val)
+        # # If the strategy is MultiWorker, wrap the datasets in a DistributedDataset
+        # if type(strategy) == tf.distribute.MultiWorkerMirroredStrategy:
+        #     ds_train = strategy.experimental_distribute_dataset(ds_train)
+        #     ds_val = strategy.experimental_distribute_dataset(ds_val)
 
         # Perform fitting using the strategy scope
         with strategy.scope():
