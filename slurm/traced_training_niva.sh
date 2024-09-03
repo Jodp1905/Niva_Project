@@ -66,19 +66,18 @@ fi
 source "${PYTHON_VENV_PATH}/bin/activate"
 
 # Setup output directory
+export TZ="Europe/Paris"
+date_str=$(date +%m%d%Y-%H%M)
 if [ ! -z "$SLURM_JOB_ID" ]; then
-  job_id=$SLURM_JOB_ID
+  suffix="${SLURM_JOB_ID}_${date_str}"
 else
-  job_id=$(date +%s)
+  suffix="${date_str}"
 fi
-run_name="traced_training_${job_id}"
+
+run_name="traced_training_${suffix}"
 niva_project_data_root_sanitized="${NIVA_PROJECT_DATA_ROOT%/}"
 output_dir="${niva_project_data_root_sanitized}/model/${run_name}"
 output_dir=$(realpath "${output_dir}")
-if [ -d "${output_dir}" ]; then
-  echo "Directory already exists: ${output_dir}. Cleaning up."
-  rm -r "${output_dir}"
-fi
 mkdir -p "${output_dir}"
 echo "Output directory: ${output_dir}"
 
@@ -86,6 +85,7 @@ echo "Output directory: ${output_dir}"
 training_script_name="training.py"
 echo "Executing training with Darshan tracing for ${run_name}."
 training_path=$(realpath "${PYTHON_SCRIPT_DIR}/${training_script_name}")
+export DARSHAN_LOGFILE="${DARSHAN_LOGS_DIR}/${run_name}.darshan"
 
 # Execute training with Darshan tracing or Nsight profiling
 # Using a HERE document to evaluate the command
@@ -96,7 +96,7 @@ ${NSIGHT_PATH}/nsys profile \
 --enable storage_metrics,\
 --lustre-volumes=all,\
 --lustre-llite-dir="${LUSTRE_LLITE_DIR}" \
---output="${NSIGHT_LOGS_DIR}/${run_name}_profile" \
+--output="${NSIGHT_LOGS_DIR}/${run_name}" \
 python3 \
 "${training_path}" \
 "${run_name}"
@@ -119,11 +119,7 @@ eval "${cmd}"
 
 # Darshan logdir shenanigans
 if [ "$tracing_tool" == "darshan" ]; then
-  day=$(date +%-d)
-  month=$(date +%-m)
-  year=$(date +%-Y)
-  darshan_logdir="${DARSHAN_LOGS_DIR}/${year}/${month}/${day}"
-  echo "Darshan logs stored in ${darshan_logdir}"
+  echo "Darshan logs stored under ${DARSHAN_LOGS_DIR}/${run_name}.darshan"
 else
-  echo "Nsight logs stored in ${NSIGHT_LOGS_DIR}"
+  echo "Nsight logs stored under ${NSIGHT_LOGS_DIR}/${run_name}.nsys-rep"
 fi

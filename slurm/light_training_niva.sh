@@ -22,10 +22,12 @@ export N_FOLDS_TO_RUN=1
 export NUM_EPOCHS=1
 
 # Run training
+export TZ="Europe/Paris"
+date_str=$(date +%m%d%Y-%H%M)
 if [ ! -z "$SLURM_JOB_ID" ]; then
-    slurm_jobid=$SLURM_JOB_ID
+    suffix="${SLURM_JOB_ID}_${date_str}"
 else
-    slurm_jobid=$(date +%s)
+    suffix="${date_str}"
 fi
-training_name="light_training_${slurm_jobid}"
+training_name="light_training_${suffix}"
 python3 $PYTHON_SCRIPT_DIR/training.py $training_name
