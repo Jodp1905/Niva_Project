@@ -3,60 +3,17 @@
 #
 #SBATCH --job-name=distributed_training_niva
 #SBATCH --time=120:00:00
-#SBATCH --output=training_niva_distributed_%j.out
-#SBATCH --error=training_niva_distributed_%j.out
-#SBATCH --nodes=1
+#SBATCH --output=/dev/null
+#SBATCH --error=/dev/null
+#SBATCH --nodes=4
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task 32
 
-# Parameters
-PYTHON_VENV_PATH="/home/jrisse/venv-niva"
-PYTHON_SCRIPT_DIR="/home/jrisse/niva/Niva_Project/scripts"
+LOG_DIR="/home/jrisse/niva/slurm_${SLURM_JOB_ID}_logs"
+mkdir -p $LOG_DIR
 
-# Get allocated nodes in the job
-nodes=($(scontrol show hostnames))
-num_nodes=${#nodes[@]}
-my_hostname=$(hostname)
-my_ip=$(getent hosts $my_hostname | awk '{ print $1 }')
+SLURM_SCRIPT_DIR="/home/jrisse/niva/Niva_Project/slurm"
 
-# Construct worker list
-port=2222
-worker_list=()
-for node in "${nodes[@]}"; do
-    node_ip=$(getent hosts $node | awk '{ print $1 }')
-    worker_list+=("$node_ip:$port")
-done
-
-# Determine the node's index in the cluster
-my_index=0
-for i in "${!nodes[@]}"; do
-    if [[ "$my_hostname" == "${nodes[$i]}" ]]; then
-        my_index=$i
-        break
-    fi
-done
-
-# Build the TF_CONFIG environment variable
-TF_CONFIG=$(
-    cat <<EOF
-{
-    "cluster": {
-        "worker": ["${worker_list[@]}"]
-    },
-    "task": {"type": "worker", "index": $my_index}
-}
-EOF
-)
-
-export TF_CONFIG
-echo "TF_CONFIG for node $my_hostname (index $my_index): $TF_CONFIG"
-
-exit 0
-
-# Activate python virtual environment
-source $PYTHON_VENV_PATH/bin/activate
-
-# Run training
-slurm_jobid=$SLURM_JOB_ID
-training_name="distributed_training_${slurm_jobid}"
-python3 $PYTHON_SCRIPT_DIR/training.py $training_name
+srun --output=$LOG_DIR/training_niva_distributed_%j_%N_%t.out \
+    --error=$LOG_DIR/training_niva_distributed_%j_%N_%t.out \
+    bash $SLURM_SCRIPT_DIR/single_node_training_niva.sh
