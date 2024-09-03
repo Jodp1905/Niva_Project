@@ -9,7 +9,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task 32
 
-LOG_DIR="/home/jrisse/niva/slurm_${SLURM_JOB_ID}_logs"
+LOG_DIR="/home/jrisse/niva/slurm_${SLURM_JOB_ID}_${SLURM_JOB_NUM_NODES}_nodes_logs"
 mkdir -p $LOG_DIR
 
 SLURM_SCRIPT_DIR="/home/jrisse/niva/Niva_Project/slurm"
