@@ -18,9 +18,14 @@ PYTHON_SCRIPT_DIR="/home/jrisse/niva/Niva_Project/scripts"
 source $PYTHON_VENV_PATH/bin/activate
 
 # Set environment variables
+export N_FOLDS_TO_RUN=1
 export NUM_EPOCHS=1
 
 # Run training
-slurm_jobid=$SLURM_JOB_ID
+if [ ! -z "$SLURM_JOB_ID" ]; then
+    slurm_jobid=$SLURM_JOB_ID
+else
+    slurm_jobid=$(date +%s)
+fi
 training_name="light_training_${slurm_jobid}"
 python3 $PYTHON_SCRIPT_DIR/training.py $training_name

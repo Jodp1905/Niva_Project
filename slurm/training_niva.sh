@@ -17,6 +17,10 @@ PYTHON_SCRIPT_DIR="/home/jrisse/niva/Niva_Project/scripts" # Has to be set for s
 source $PYTHON_VENV_PATH/bin/activate
 
 # Run training
-slurm_jobid=$SLURM_JOB_ID
+if [ ! -z "$SLURM_JOB_ID" ]; then
+    slurm_jobid=$SLURM_JOB_ID
+else
+    slurm_jobid=$(date +%s)
+fi
 training_name="training_${slurm_jobid}"
 python3 $PYTHON_SCRIPT_DIR/training.py $training_name
