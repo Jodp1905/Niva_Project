@@ -60,7 +60,7 @@ elif TRAINING_TYPE_ENV == TrainingType.MultiWorker.name:
     if TF_CONFIG is None:
         raise ValueError(
             "TF_CONFIG environment variable must be set for MultiWorker training")
-    TF_CONFIG_DICT = json.loads(TF_CONFIG, indent=4)
+    TF_CONFIG_DICT = json.loads(TF_CONFIG)
     STRATEGY = tf.distribute.MultiWorkerMirroredStrategy(
         communication_options=tf.distribute.experimental.CommunicationOptions(
             implementation=tf.distribute.experimental.CollectiveCommunication.RING),
