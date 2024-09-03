@@ -1,3 +1,4 @@
+# autopep8: off
 import os
 import json
 import logging
@@ -10,9 +11,6 @@ import psutil
 import time
 import pandas as pd
 from enum import Enum
-from eoflow.models.segmentation_base import segmentation_metrics
-from eoflow.models.losses import TanimotoDistanceLoss
-from eoflow.models.segmentation_unets import ResUnetA
 from functools import reduce
 from filter import LogFileFilter
 import json
@@ -78,6 +76,13 @@ else:
     raise ValueError(
         f"Invalid training type: {TRAINING_TYPE_ENV}."
         f"Must be one of {', '.join(TrainingType.__members__.keys())}")
+
+# Import model-related functions
+from eoflow.models.segmentation_base import segmentation_metrics
+from eoflow.models.losses import TanimotoDistanceLoss
+from eoflow.models.segmentation_unets import ResUnetA
+
+# autopep8: off
 
 # Model hyperparameters
 HYPER_PARAM_CONFIG = {
