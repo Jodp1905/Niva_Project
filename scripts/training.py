@@ -56,8 +56,8 @@ elif TRAINING_TYPE_ENV == TrainingType.MultiWorker.name:
     LOGGER.info("MultiWorker selected, using MultiWorkerMirroredStrategy")
     TF_CONFIG = os.getenv('TF_CONFIG')
     if TF_CONFIG is None:
-        raise ValueError(
-            "TF_CONFIG environment variable must be set for MultiWorker training")
+        LOGGER.error('TF_CONFIG environment variable not set')
+        exit(1)
     TF_CONFIG_DICT = json.loads(TF_CONFIG)
     STRATEGY = tf.distribute.MultiWorkerMirroredStrategy(
         communication_options=tf.distribute.experimental.CommunicationOptions(
@@ -73,9 +73,10 @@ elif TRAINING_TYPE_ENV == TrainingType.MultiWorker.name:
         f"Devices: {devices}"
         f"TF_CONFIG: {TF_CONFIG_DICT}")
 else:
-    raise ValueError(
-        f"Invalid training type: {TRAINING_TYPE_ENV}."
-        f"Must be one of {', '.join(TrainingType.__members__.keys())}")
+    LOGGER.error(
+        f"Invalid training type: {TRAINING_TYPE_ENV}.\n"
+        f"Must be one of: {', '.join(TrainingType.__members__.keys())}")
+    exit(1)
 
 # Import model-related functions
 from eoflow.models.segmentation_base import segmentation_metrics
