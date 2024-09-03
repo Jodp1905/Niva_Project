@@ -17,6 +17,19 @@ NSIGHT_PATH="/home/jrisse/software/Nsys_2024.5.1/target-linux-x64"
 NSIGHT_LOGS_DIR="/home/jrisse/nsight_logs"
 LUSTRE_LLITE_DIR="/mnt/lustre-stats/llite"
 
+# Tracing tool choice are both cannot be used at the same time
+if [ -z "$1" ]; then
+  echo "Usage: $0 <tracing_tool>"
+  echo "  tracing_tool: 'darshan' or 'nsight'"
+  exit 1
+fi
+tracing_tool=$1
+if [ "$tracing_tool" != "darshan" ] && [ "$tracing_tool" != "nsight" ]; then
+  echo "Invalid tracing tool: $tracing_tool"
+  echo "  tracing_tool: 'darshan' or 'nsight'"
+  exit 1
+fi
+
 # Training parameters
 export N_FOLDS_TO_RUN=1
 export NUM_EPOCHS=1
@@ -53,7 +66,7 @@ fi
 source "${PYTHON_VENV_PATH}/bin/activate"
 
 # Setup output directory
-if [ !-z "$SLURM_JOB_ID" ]; then
+if [ ! -z "$SLURM_JOB_ID" ]; then
   job_id=$SLURM_JOB_ID
 else
   job_id=$(date +%s)
@@ -74,29 +87,43 @@ training_script_name="training.py"
 echo "Executing training with Darshan tracing for ${run_name}."
 training_path=$(realpath "${PYTHON_SCRIPT_DIR}/${training_script_name}")
 
-# Execute training with Darshan tracing & Nsight profiling
+# Execute training with Darshan tracing or Nsight profiling
 # Using a HERE document to evaluate the command
-cmd=$(
-  cat <<EOF
-env LD_PRELOAD="${DARSHAN_LIBPATH}" \
-  ${NSIGHT_PATH}/nsys profile \
-  --enable storage_metrics \
-  --lustre-volumes=all \
-  --lustre-llite-dir="${LUSTRE_LLITE_DIR}" \
-  --output="${NSIGHT_LOGS_DIR}/${run_name}_profile" \
-  python3 \
-  "${training_path}" \
-  "${run_name}"
+if [ "$tracing_tool" == "nsight" ]; then
+  cmd=$(
+    cat <<EOF
+${NSIGHT_PATH}/nsys profile \
+--enable storage_metrics,\
+--lustre-volumes=all,\
+--lustre-llite-dir="${LUSTRE_LLITE_DIR}" \
+--output="${NSIGHT_LOGS_DIR}/${run_name}_profile" \
+python3 \
+"${training_path}" \
+"${run_name}"
 EOF
-)
-echo "Executing command:"
+  )
+elif [ "$tracing_tool" == "darshan" ]; then
+  cmd=$(
+    cat <<EOF
+env LD_PRELOAD="${DARSHAN_LIBPATH}" \
+python3 \
+"${training_path}" \
+"${run_name}"
+EOF
+  )
+fi
+
+echo "Executing command with ${tracing_tool}:"
 echo "${cmd}"
 eval "${cmd}"
 
 # Darshan logdir shenanigans
-day=$(date +%-d)
-month=$(date +%-m)
-year=$(date +%-Y)
-darshan_logdir="${DARSHAN_LOGS_DIR}/${year}/${month}/${day}"
-echo "Darshan logs stored in ${darshan_logdir}"
-echo "Nsight logs stored in ${NSIGHT_LOGS_DIR}"
+if [ "$tracing_tool" == "darshan" ]; then
+  day=$(date +%-d)
+  month=$(date +%-m)
+  year=$(date +%-Y)
+  darshan_logdir="${DARSHAN_LOGS_DIR}/${year}/${month}/${day}"
+  echo "Darshan logs stored in ${darshan_logdir}"
+else
+  echo "Nsight logs stored in ${NSIGHT_LOGS_DIR}"
+fi
