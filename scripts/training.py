@@ -16,7 +16,7 @@ from eoflow.models.segmentation_unets import ResUnetA
 from functools import reduce
 from filter import LogFileFilter
 import json
-
+import socket
 import tensorflow as tf
 
 # Configure logging
@@ -47,6 +47,12 @@ TF_CONFIG, TF_CONFIG_DICT = None, None
 if TRAINING_TYPE_ENV == TrainingType.SingleWorker.name:
     LOGGER.info("SingleWorker selected, using MirroredStrategy")
     STRATEGY = tf.distribute.MirroredStrategy()
+    num_workers = STRATEGY.num_replicas_in_sync
+    devices = STRATEGY.extended.worker_devices
+    hostname = socket.gethostname()
+    LOGGER.info(
+        f"MirroredStrategy selected with {num_workers} workers on {hostname}\n"
+        f"Devices: {devices}")
 elif TRAINING_TYPE_ENV == TrainingType.MultiWorker.name:
     LOGGER.info("MultiWorker selected, using MultiWorkerMirroredStrategy")
     TF_CONFIG = os.getenv('TF_CONFIG')
@@ -56,6 +62,12 @@ elif TRAINING_TYPE_ENV == TrainingType.MultiWorker.name:
             implementation=tf.distribute.experimental.CollectiveCommunication.RING),
         cluster_resolver=tf.distribute.cluster_resolver.TFConfigClusterResolver()
     )
+    num_workers = STRATEGY.num_replicas_in_sync
+    devices = STRATEGY.extended.worker_devices
+    hostname = socket.gethostname()
+    LOGGER.info(
+        f"MultiWorkerMirroredStrategy selected with {num_workers} workers on {hostname}\n"
+        f"Devices: {devices}")
 else:
     raise ValueError(
         f"Invalid training type: {TRAINING_TYPE_ENV}."
@@ -658,9 +670,12 @@ if __name__ == '__main__':
     if NIVA_PROJECT_DATA_ROOT is None:
         LOGGER.error('NIVA_PROJECT_DATA_ROOT environment variable not set')
         exit(1)
+    # Check arguments
     if len(sys.argv) != 2:
         LOGGER.error('Usage: python training.py <run_name>')
+        exit(1)
     run_name = sys.argv[1]
+    # Set up model folder
     model_folder = os.path.join(MODEL_FOLDER, run_name)
     os.makedirs(model_folder, exist_ok=True)
     LOGGER.info(f'Starting training with results saved to {model_folder}')
