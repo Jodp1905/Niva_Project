@@ -57,7 +57,10 @@ if TRAINING_TYPE_ENV == TrainingType.SingleWorker.name:
 elif TRAINING_TYPE_ENV == TrainingType.MultiWorker.name:
     LOGGER.info("MultiWorker selected, using MultiWorkerMirroredStrategy")
     TF_CONFIG = os.getenv('TF_CONFIG')
-    TF_CONFIG_DICT = json.loads(TF_CONFIG) if TF_CONFIG is not None else None
+    if TF_CONFIG is None:
+        raise ValueError(
+            "TF_CONFIG environment variable must be set for MultiWorker training")
+    TF_CONFIG_DICT = json.loads(TF_CONFIG, indent=4)
     STRATEGY = tf.distribute.MultiWorkerMirroredStrategy(
         communication_options=tf.distribute.experimental.CommunicationOptions(
             implementation=tf.distribute.experimental.CollectiveCommunication.RING),
@@ -69,7 +72,8 @@ elif TRAINING_TYPE_ENV == TrainingType.MultiWorker.name:
     LOGGER.info(
         f"\n\n========================== Strategy Summary ==========================\n"
         f"MultiWorkerMirroredStrategy selected with {num_workers} workers on {hostname}\n"
-        f"Devices: {devices}")
+        f"Devices: {devices}"
+        f"TF_CONFIG: {TF_CONFIG_DICT}")
 else:
     raise ValueError(
         f"Invalid training type: {TRAINING_TYPE_ENV}."
