@@ -14,6 +14,10 @@ PYTHON_VENV_PATH="/home/jrisse/venv-niva"
 PYTHON_SCRIPT_DIR="/home/jrisse/niva/Niva_Project/scripts" # Has to be set for slurm jobs
 DARSHAN_LOGS_DIR="/home/jrisse/darshan_logs"
 
+# Training parameters
+export N_FOLDS_TO_RUN=1
+export NUM_EPOCHS=1
+
 # Darshan Parameters
 export DARSHAN_EXCLUDE_DIRS="${PYTHON_VENV_PATH}" # Exclude Python virtual environment
 export DARSHAN_MODMEM=20000                       # 20 GB of memory allowed for Darshan instrumentation
