@@ -15,33 +15,9 @@ from eoflow.models.losses import TanimotoDistanceLoss
 from eoflow.models.segmentation_unets import ResUnetA
 from functools import reduce
 from filter import LogFileFilter
-import socket
 import json
 
 import tensorflow as tf
-
-# Configure TensorFlow strategies at the earliest
-TF_CONFIG = os.getenv('TF_CONFIG')
-TF_CONFIG_DICT = json.loads(TF_CONFIG) if TF_CONFIG is not None else None
-SINGLE_WORKER_STRATEGY = tf.distribute.MirroredStrategy()
-COMMUNICATIONS_OPTIONS = tf.distribute.experimental.CollectiveCommunication.RING
-CLUSTER_RESOLVER = tf.distribute.cluster_resolver.TFConfigClusterResolver()
-MULTI_WORKER_STRATEGY = tf.distribute.MultiWorkerMirroredStrategy(
-    communication_options=COMMUNICATIONS_OPTIONS,
-    cluster_resolver=CLUSTER_RESOLVER
-)
-
-# Training type abstraction (SingleWorker, MultiWorker)
-
-
-class TrainingType(Enum):
-    # Uses MirroredStrategy for single worker
-    SingleWorker = 1
-    # Uses MultiWorkerMirroredStrategy for multiple workers
-    MultiWorker = 2
-
-
-TRAINING_TYPE_ENV = os.getenv('TRAINING_TYPE', None)
 
 # Configure logging
 stdout_handler = logging.StreamHandler(sys.stdout)
@@ -53,6 +29,37 @@ logging.basicConfig(
     handlers=handlers
 )
 LOGGER = logging.getLogger(__name__)
+
+
+# Configure TensorFlow strategies at the earliest
+
+
+class TrainingType(Enum):
+    # Uses MirroredStrategy for single worker
+    SingleWorker = 1
+    # Uses MultiWorkerMirroredStrategy for multiple workers
+    MultiWorker = 2
+
+
+TRAINING_TYPE_ENV = os.getenv('TRAINING_TYPE', TrainingType.SingleWorker.name)
+STRATEGY = None
+TF_CONFIG, TF_CONFIG_DICT = None, None
+if TRAINING_TYPE_ENV == TrainingType.SingleWorker.name:
+    LOGGER.info("SingleWorker selected, using MirroredStrategy")
+    STRATEGY = tf.distribute.MirroredStrategy()
+elif TRAINING_TYPE_ENV == TrainingType.MultiWorker.name:
+    LOGGER.info("MultiWorker selected, using MultiWorkerMirroredStrategy")
+    TF_CONFIG = os.getenv('TF_CONFIG')
+    TF_CONFIG_DICT = json.loads(TF_CONFIG) if TF_CONFIG is not None else None
+    STRATEGY = tf.distribute.MultiWorkerMirroredStrategy(
+        communication_options=tf.distribute.experimental.CommunicationOptions(
+            implementation=tf.distribute.experimental.CollectiveCommunication.RING),
+        cluster_resolver=tf.distribute.cluster_resolver.TFConfigClusterResolver()
+    )
+else:
+    raise ValueError(
+        f"Invalid training type: {TRAINING_TYPE_ENV}."
+        f"Must be one of {', '.join(TrainingType.__members__.keys())}")
 
 # Model hyperparameters
 HYPER_PARAM_CONFIG = {
@@ -411,18 +418,19 @@ def check_positive_integers(**kwargs):
     return failed_args
 
 
-def train_k_folds(dataset_folder: str,
-                  model_folder: str,
-                  model_name: str,
-                  model_config: dict,
-                  input_shape: tuple,
-                  chkpt_folder: str,
-                  num_epochs: int,
-                  iterations_per_epoch: int,
-                  batch_size: int,
-                  n_folds: int,
-                  n_folds_to_run: int,
-                  strategy: tf.distribute.Strategy):
+def train_k_folds(
+        strategy: tf.distribute.Strategy,
+        dataset_folder: str,
+        model_folder: str,
+        model_name: str,
+        model_config: dict,
+        input_shape: tuple,
+        chkpt_folder: str,
+        num_epochs: int,
+        iterations_per_epoch: int,
+        batch_size: int,
+        n_folds: int,
+        n_folds_to_run: int):
     """
     Trains a model using k-fold cross-validation, and performs evaluation on the left-out fold.
     At the end, an average model is created and evaluated on all folds.
@@ -517,7 +525,7 @@ def train_k_folds(dataset_folder: str,
             ds_train = ds_train.repeat()
 
         # If the strategy is MultiWorker, wrap the datasets in a DistributedDataset
-        if strategy == MULTI_WORKER_STRATEGY:
+        if type(strategy) == tf.distribute.MultiWorkerMirroredStrategy:
             ds_train = strategy.experimental_distribute_dataset(ds_train)
             ds_val = strategy.experimental_distribute_dataset(ds_val)
 
@@ -601,7 +609,7 @@ def train_k_folds(dataset_folder: str,
     # Creating average model
 
     # for MultiWorker, only the chief worker creates the average model
-    if strategy == MULTI_WORKER_STRATEGY:
+    if type(strategy) == tf.distribute.MultiWorkerMirroredStrategy:
         if TF_CONFIG_DICT['task']['index'] != 0:
             LOGGER.info(
                 'Only the chief worker creates the average model, skipping')
@@ -655,48 +663,9 @@ if __name__ == '__main__':
     run_name = sys.argv[1]
     model_folder = os.path.join(MODEL_FOLDER, run_name)
     os.makedirs(model_folder, exist_ok=True)
-
-    # Define strategy
-    strategy = None
-    if TRAINING_TYPE_ENV is None:
-        LOGGER.info(
-            "No distributed training strategy specified, defaulting to MirroredStrategy")
-        strategy = SINGLE_WORKER_STRATEGY
-        num_workers = strategy.num_replicas_in_sync
-        devices = strategy.extended.worker_devices
-        LOGGER.info(
-            f"MirroredStrategy configuration:\n"
-            f"Number of devices (workers): {num_workers}\nDevices: {devices}")
-    elif TRAINING_TYPE_ENV == TrainingType.SingleWorker.name:
-        strategy = SINGLE_WORKER_STRATEGY
-        num_workers = strategy.num_replicas_in_sync
-        devices = strategy.extended.worker_devices
-        LOGGER.info(
-            f"SingleWorker selected, using MirroredStrategy\n"
-            f"MirroredStrategy configuration:\n"
-            f"Number of devices (workers): {num_workers}\nDevices: {devices}")
-    elif TRAINING_TYPE_ENV == TrainingType.MultiWorker.name:
-        LOGGER.info("MultiWorker selected, using MultiWorkerMirroredStrategy")
-        if TF_CONFIG is None:
-            raise ValueError(
-                "TF_CONFIG environment variable must be set for multi-worker training")
-        strategy = MULTI_WORKER_STRATEGY
-        num_workers = strategy.num_replicas_in_sync
-        devices = strategy.extended.worker_devices
-        hostname = socket.gethostname()
-        LOGGER.info(
-            f"MultiWorkerMirroredStrategy configuration:\n"
-            f"Hostname: {hostname}\n"
-            f"TF_CONFIG: {TF_CONFIG_DICT}\n"
-            f"Number of devices (workers): {num_workers}\n"
-            f"Devices: {devices}"
-        )
-    else:
-        raise ValueError(
-            f"Invalid training type: {TRAINING_TYPE_ENV}."
-            f"Must be one of {', '.join(TrainingType.__members__.keys())}")
-
+    LOGGER.info(f'Starting training with results saved to {model_folder}')
     train_k_folds(
+        strategy=STRATEGY,
         dataset_folder=DATASET_FOLDER,
         model_folder=model_folder,
         model_name=HYPER_PARAM_CONFIG['model_name'],
@@ -707,7 +676,6 @@ if __name__ == '__main__':
         iterations_per_epoch=HYPER_PARAM_CONFIG['iterations_per_epoch'],
         batch_size=HYPER_PARAM_CONFIG['batch_size'],
         n_folds=HYPER_PARAM_CONFIG['n_folds'],
-        n_folds_to_run=HYPER_PARAM_CONFIG['n_folds_to_run'],
-        stategy=strategy
+        n_folds_to_run=HYPER_PARAM_CONFIG['n_folds_to_run']
     )
     LOGGER.info('Training completed')
