@@ -2,7 +2,6 @@ import os
 import json
 import logging
 from datetime import datetime
-import tensorflow as tf
 import numpy as np
 from pathlib import Path
 import pytz
@@ -10,12 +9,39 @@ import sys
 import psutil
 import time
 import pandas as pd
-
+from enum import Enum
 from eoflow.models.segmentation_base import segmentation_metrics
 from eoflow.models.losses import TanimotoDistanceLoss
 from eoflow.models.segmentation_unets import ResUnetA
 from functools import reduce
 from filter import LogFileFilter
+import socket
+import json
+
+import tensorflow as tf
+
+# Configure TensorFlow strategies at the earliest
+TF_CONFIG = os.getenv('TF_CONFIG')
+TF_CONFIG_DICT = json.loads(TF_CONFIG) if TF_CONFIG is not None else None
+SINGLE_WORKER_STRATEGY = tf.distribute.MirroredStrategy()
+COMMUNICATIONS_OPTIONS = tf.distribute.experimental.CollectiveCommunication.RING
+CLUSTER_RESOLVER = tf.distribute.cluster_resolver.TFConfigClusterResolver()
+MULTI_WORKER_STRATEGY = tf.distribute.MultiWorkerMirroredStrategy(
+    communication_options=COMMUNICATIONS_OPTIONS,
+    cluster_resolver=CLUSTER_RESOLVER
+)
+
+# Training type abstraction (SingleWorker, MultiWorker)
+
+
+class TrainingType(Enum):
+    # Uses MirroredStrategy for single worker
+    SingleWorker = 1
+    # Uses MultiWorkerMirroredStrategy for multiple workers
+    MultiWorker = 2
+
+
+TRAINING_TYPE_ENV = os.getenv('TRAINING_TYPE', None)
 
 # Configure logging
 stdout_handler = logging.StreamHandler(sys.stdout)
@@ -38,6 +64,8 @@ HYPER_PARAM_CONFIG = {
     "n_classes": 2,
     # Number of folds for cross-validation
     "n_folds": 10,
+    # Numbers of folds to run
+    "n_folds_to_run": int(os.getenv('N_FOLDS_TO_RUN', 10)),
     # If True, repeats dataset and use iterations_per_epoch during model fit
     "repeat_dataset": False,
     # Number of batches processed per epoch, used only if repeat_dataset is True
@@ -377,9 +405,24 @@ def get_dataset_size(dataset: tf.data.Dataset,
         return num_imgs
 
 
-def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
-                  batch_size, iterations_per_epoch, num_epochs,
-                  model_name, n_folds, model_config, start_fold=0):
+def check_positive_integers(**kwargs):
+    failed_args = {name: value for name, value in kwargs.items() if not (
+        isinstance(value, int) and value > 0)}
+    return failed_args
+
+
+def train_k_folds(dataset_folder: str,
+                  model_folder: str,
+                  model_name: str,
+                  model_config: dict,
+                  input_shape: tuple,
+                  chkpt_folder: str,
+                  num_epochs: int,
+                  iterations_per_epoch: int,
+                  batch_size: int,
+                  n_folds: int,
+                  n_folds_to_run: int,
+                  strategy: tf.distribute.Strategy):
     """
     Trains a model using k-fold cross-validation, and performs evaluation on the left-out fold.
     At the end, an average model is created and evaluated on all folds.
@@ -387,20 +430,38 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
     Args:
         dataset_folder (str): The path to the folder containing the dataset.
         model_folder (str): The path to the folder where the trained models will be saved.
-        chkpt_folder (str): The path to the folder where the model checkpoints will be saved.
-        input_shape (tuple): The shape of the input data.
-        batch_size (int): The batch size for training.
-        iterations_per_epoch (int): The number of iterations per epoch.
-        num_epochs (int): The number of epochs to train for.
         model_name (str): The name of the model.
-        n_folds (int): The number of folds for cross-validation.
         model_config (dict): The configuration of the model.
-        start_fold (int): The fold from which to resume the training (default is 0).
+        input_shape (tuple): The shape of the input data.
+        chkpt_folder (str): The path to the folder where the model checkpoints will be saved.
+        num_epochs (int): The number of epochs to train for.
+        iterations_per_epoch (int): The number of iterations per epoch.
+        batch_size (int): The batch size for training.
+        n_folds (int): The number of folds for cross-validation.
+        n_folds_to_run (int): The number of folds to actually run.
+        strategy (tf.distribute.Strategy): The strategy for distributed training.
 
     Returns:
         None
     """
     training_full_start_time = time.time()
+
+    # Arguments sanity check
+    failed_args = check_positive_integers(
+        batch_size=batch_size,
+        iterations_per_epoch=iterations_per_epoch,
+        num_epochs=num_epochs,
+        n_folds=n_folds,
+        n_folds_to_run=n_folds_to_run
+    )
+    if failed_args:
+        failed_msg = ', '.join(
+            f"{name}={value}" for name, value in failed_args.items())
+        raise ValueError(
+            f"The following arguments must be positive integers: {failed_msg}")
+    if n_folds_to_run > n_folds:
+        raise ValueError(
+            "n_folds_to_run must be less than or equal to n_folds")
 
     # Dump hyperparameters and model configuration to json
     with open(f'{model_folder}/hyperparameters.json', 'w') as jfile:
@@ -413,6 +474,7 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
     # Create datasets for each fold
     ds_folds = []
     sample_count = 0
+
     for fold in range(1, n_folds + 1):
         dataset = load_and_process_dataset(dataset_folder, fold, batch_size)
         dataset_size = get_dataset_size(dataset, img_count=False)
@@ -428,17 +490,8 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
     fold_configurations = prepare_fold_configurations(n_folds, model_folder)
     models = []
 
-    # Define strategy for distributed training
-    strategy = tf.distribute.MirroredStrategy()
-    num_workers = strategy.num_replicas_in_sync
-    devices = strategy.extended.worker_devices
-    LOGGER.info(
-        f"Number of devices (workers): {num_workers}\nDevices: {devices}")
-
+    fold_counter = 0
     for i, (fold_entry) in enumerate(fold_configurations):
-        if i < start_fold:
-            LOGGER.info(f'Skipping fold {i + 1} as it was already completed.')
-            continue
 
         # Set up training and validation datasets
         fold_val = fold_entry['validation_fold']
@@ -462,6 +515,11 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
         if HYPER_PARAM_CONFIG['repeat_dataset'] is True:
             # repeat dataset only if not using all training data
             ds_train = ds_train.repeat()
+
+        # If the strategy is MultiWorker, wrap the datasets in a DistributedDataset
+        if strategy == MULTI_WORKER_STRATEGY:
+            ds_train = strategy.experimental_distribute_dataset(ds_train)
+            ds_val = strategy.experimental_distribute_dataset(ds_val)
 
         # Perform fitting using the strategy scope
         with strategy.scope():
@@ -490,8 +548,7 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
                                   epochs=num_epochs,
                                   callbacks=callbacks)
             except Exception as e:
-                LOGGER.error(f'Error while fitting model: {e}')
-                exit(1)
+                raise Exception(f'Error in fitting folds {folds_train}') from e
             fitting_end_time = time.time()
             fitting_duration = fitting_end_time - fitting_start_time
 
@@ -501,7 +558,10 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
             # Evaluate model on left-out fold
             LOGGER.info(f'Evaluating model on left-out fold {fold_test}')
             testing_start_time = time.time()
-            evaluation = model.net.evaluate(ds_folds[fold_test])
+            try:
+                evaluation = model.net.evaluate(ds_folds[fold_test])
+            except Exception as e:
+                raise Exception(f'Error in evaluating fold {fold_test}') from e
             testing_end_time = time.time()
             testing_duration = testing_end_time - testing_start_time
             evaluation_dict = dict(zip(model.net.metrics_names, evaluation))
@@ -532,9 +592,21 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
             with open(fold_data_path, 'w') as jfile:
                 json.dump(fold_infos, jfile, indent=4)
         LOGGER.info(f'Fold {fold_test} completed')
-    LOGGER.info('All folds completed')
+        fold_counter += 1
+        if fold_counter == n_folds_to_run:
+            LOGGER.info(f'Reached {n_folds_to_run} folds, stopping')
+            break
+    LOGGER.info(f'All {n_folds_to_run} folds completed')
 
     # Creating average model
+
+    # for MultiWorker, only the chief worker creates the average model
+    if strategy == MULTI_WORKER_STRATEGY:
+        if TF_CONFIG_DICT['task']['index'] != 0:
+            LOGGER.info(
+                'Only the chief worker creates the average model, skipping')
+            return
+
     LOGGER.info('Create average model')
     weights = [model.net.get_weights() for model in models]
     avg_weights = [np.array([np.array(w).mean(axis=0) for w in zip(*weights_list_tuple)])
@@ -574,22 +646,68 @@ def train_k_folds(dataset_folder, model_folder, chkpt_folder, input_shape,
 
 
 if __name__ == '__main__':
+    # Check environment variables
     if NIVA_PROJECT_DATA_ROOT is None:
         LOGGER.error('NIVA_PROJECT_DATA_ROOT environment variable not set')
         exit(1)
     if len(sys.argv) != 2:
-        LOGGER.error('Usage: python training.py <model_name>')
-    model_name = sys.argv[1]
-    model_folder = os.path.join(MODEL_FOLDER, model_name)
+        LOGGER.error('Usage: python training.py <run_name>')
+    run_name = sys.argv[1]
+    model_folder = os.path.join(MODEL_FOLDER, run_name)
     os.makedirs(model_folder, exist_ok=True)
-    train_k_folds(DATASET_FOLDER,
-                  model_folder,
-                  HYPER_PARAM_CONFIG['chkpt_folder'],
-                  HYPER_PARAM_CONFIG['input_shape'],
-                  HYPER_PARAM_CONFIG['batch_size'],
-                  HYPER_PARAM_CONFIG['iterations_per_epoch'],
-                  HYPER_PARAM_CONFIG['num_epochs'],
-                  HYPER_PARAM_CONFIG['model_name'],
-                  HYPER_PARAM_CONFIG['n_folds'],
-                  MODEL_CONFIG)
+
+    # Define strategy
+    strategy = None
+    if TRAINING_TYPE_ENV is None:
+        LOGGER.info(
+            "No distributed training strategy specified, defaulting to MirroredStrategy")
+        strategy = SINGLE_WORKER_STRATEGY
+        num_workers = strategy.num_replicas_in_sync
+        devices = strategy.extended.worker_devices
+        LOGGER.info(
+            f"MirroredStrategy configuration:\n"
+            f"Number of devices (workers): {num_workers}\nDevices: {devices}")
+    elif TRAINING_TYPE_ENV == TrainingType.SingleWorker.name:
+        strategy = SINGLE_WORKER_STRATEGY
+        num_workers = strategy.num_replicas_in_sync
+        devices = strategy.extended.worker_devices
+        LOGGER.info(
+            f"SingleWorker selected, using MirroredStrategy\n"
+            f"MirroredStrategy configuration:\n"
+            f"Number of devices (workers): {num_workers}\nDevices: {devices}")
+    elif TRAINING_TYPE_ENV == TrainingType.MultiWorker.name:
+        LOGGER.info("MultiWorker selected, using MultiWorkerMirroredStrategy")
+        if TF_CONFIG is None:
+            raise ValueError(
+                "TF_CONFIG environment variable must be set for multi-worker training")
+        strategy = MULTI_WORKER_STRATEGY
+        num_workers = strategy.num_replicas_in_sync
+        devices = strategy.extended.worker_devices
+        hostname = socket.gethostname()
+        LOGGER.info(
+            f"MultiWorkerMirroredStrategy configuration:\n"
+            f"Hostname: {hostname}\n"
+            f"TF_CONFIG: {TF_CONFIG_DICT}\n"
+            f"Number of devices (workers): {num_workers}\n"
+            f"Devices: {devices}"
+        )
+    else:
+        raise ValueError(
+            f"Invalid training type: {TRAINING_TYPE_ENV}."
+            f"Must be one of {', '.join(TrainingType.__members__.keys())}")
+
+    train_k_folds(
+        dataset_folder=DATASET_FOLDER,
+        model_folder=model_folder,
+        model_name=HYPER_PARAM_CONFIG['model_name'],
+        model_config=MODEL_CONFIG,
+        input_shape=HYPER_PARAM_CONFIG['input_shape'],
+        chkpt_folder=HYPER_PARAM_CONFIG['chkpt_folder'],
+        num_epochs=HYPER_PARAM_CONFIG['num_epochs'],
+        iterations_per_epoch=HYPER_PARAM_CONFIG['iterations_per_epoch'],
+        batch_size=HYPER_PARAM_CONFIG['batch_size'],
+        n_folds=HYPER_PARAM_CONFIG['n_folds'],
+        n_folds_to_run=HYPER_PARAM_CONFIG['n_folds_to_run'],
+        stategy=strategy
+    )
     LOGGER.info('Training completed')
