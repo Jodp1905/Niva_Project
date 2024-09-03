@@ -51,6 +51,7 @@ if TRAINING_TYPE_ENV == TrainingType.SingleWorker.name:
     devices = STRATEGY.extended.worker_devices
     hostname = socket.gethostname()
     LOGGER.info(
+        f"\n\n========================== Strategy Summary ==========================\n"
         f"MirroredStrategy selected with {num_workers} workers on {hostname}\n"
         f"Devices: {devices}")
 elif TRAINING_TYPE_ENV == TrainingType.MultiWorker.name:
@@ -66,6 +67,7 @@ elif TRAINING_TYPE_ENV == TrainingType.MultiWorker.name:
     devices = STRATEGY.extended.worker_devices
     hostname = socket.gethostname()
     LOGGER.info(
+        f"\n\n========================== Strategy Summary ==========================\n"
         f"MultiWorkerMirroredStrategy selected with {num_workers} workers on {hostname}\n"
         f"Devices: {devices}")
 else:
@@ -489,12 +491,11 @@ def train_k_folds(
     with open(f'{model_folder}/model_cfg.json', 'w') as jfile:
         json.dump(model_config, jfile, indent=4)
 
-    LOGGER.info('Loading K TF datasets')
-
-    # Create datasets for each fold
+    # Load datasets
+    LOGGER.info(
+        f"\n\n========================== Dataset Loading ==========================")
     ds_folds = []
     sample_count = 0
-
     for fold in range(1, n_folds + 1):
         dataset = load_and_process_dataset(dataset_folder, fold, batch_size)
         dataset_size = get_dataset_size(dataset, img_count=False)
@@ -513,6 +514,9 @@ def train_k_folds(
     fold_counter = 0
     for i, (fold_entry) in enumerate(fold_configurations):
 
+        LOGGER.info(
+            f"\n\n============================= Fold {i + 1}/{n_folds_to_run} ============================="
+        )
         # Set up training and validation datasets
         fold_val = fold_entry['validation_fold']
         folds_train = fold_entry['training_folds']
@@ -527,7 +531,6 @@ def train_k_folds(
         df_val_size = get_dataset_size(ds_val, img_count=True)
         df_test_size = get_dataset_size(ds_folds[fold_test], img_count=True)
         LOGGER.info(
-            f'Step {i + 1}/{n_folds} \n'
             f'Train folds {folds_train}\n\tsize: {df_train_size} images \n'
             f'Val fold: {fold_val}\n\tsize: {df_val_size} images \n'
             f'Test fold: {fold_test}\n\tsize: {df_test_size} images')
@@ -549,7 +552,7 @@ def train_k_folds(
             callbacks = initialise_callbacks(model_path)
             init_end = time.time()
             init_duration = init_end - init_start
-            LOGGER.info(f'\tTraining model, writing to {model_path}')
+            LOGGER.info(f'Training model, writing to {model_path}')
 
             # Fit model
             fitting_start_time = time.time()
@@ -678,7 +681,6 @@ if __name__ == '__main__':
     # Set up model folder
     model_folder = os.path.join(MODEL_FOLDER, run_name)
     os.makedirs(model_folder, exist_ok=True)
-    LOGGER.info(f'Starting training with results saved to {model_folder}')
     train_k_folds(
         strategy=STRATEGY,
         dataset_folder=DATASET_FOLDER,
