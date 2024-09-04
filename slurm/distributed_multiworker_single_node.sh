@@ -3,7 +3,6 @@
 PYTHON_VENV_PATH="/home/jrisse/venv-niva"
 PYTHON_SCRIPT_DIR="/home/jrisse/niva/Niva_Project/scripts"
 SLURM_SCRIPT_DIR="/home/jrisse/niva/Niva_Project/slurm"
-PMI_PATH="/usr/lib/libpmi.so"
 
 PORT=2222
 

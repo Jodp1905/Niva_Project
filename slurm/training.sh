@@ -16,6 +16,10 @@ PYTHON_SCRIPT_DIR="/home/jrisse/niva/Niva_Project/scripts" # Has to be set for s
 # Activate python virtual environment
 source $PYTHON_VENV_PATH/bin/activate
 
+# Set environment variables
+export FOLD_LIST="0"
+export NUM_EPOCHS=1
+
 # Run training
 export TZ="Europe/Paris"
 date_str=$(date +%m%d%Y-%H%M)
