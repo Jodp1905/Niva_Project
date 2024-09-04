@@ -83,7 +83,7 @@ from eoflow.models.segmentation_base import segmentation_metrics
 from eoflow.models.losses import TanimotoDistanceLoss
 from eoflow.models.segmentation_unets import ResUnetA
 
-# autopep8: off
+# autopep8: on
 
 # Model hyperparameters
 HYPER_PARAM_CONFIG = {
@@ -95,8 +95,8 @@ HYPER_PARAM_CONFIG = {
     "n_classes": 2,
     # Number of folds for cross-validation
     "n_folds": 10,
-    # Numbers of folds to run
-    "n_folds_to_run": int(os.getenv('N_FOLDS_TO_RUN', 10)),
+    # Allow to run only a subset of the folds
+    "fold_list": os.getenv('FOLD_LIST', None),
     # If True, repeats dataset and use iterations_per_epoch during model fit
     "repeat_dataset": False,
     # Number of batches processed per epoch, used only if repeat_dataset is True
@@ -377,7 +377,7 @@ def load_and_process_dataset(dataset_folder, fold, batch_size):
     return dataset
 
 
-def prepare_fold_configurations(n_folds, model_path, seed=42):
+def prepare_fold_configurations(n_folds, seed=42):
     """
     Prepare fold configurations for n-fold cross-validation.
 
@@ -398,8 +398,6 @@ def prepare_fold_configurations(n_folds, model_path, seed=42):
     fold_configurations = []
     for i in range(n_folds):
         testing_fold = folds[i]
-        model_fold_path = os.path.join(model_path, f'fold-{testing_fold}')
-        os.makedirs(model_fold_path, exist_ok=True)
         np.random.seed(seed)
         validation_fold = int(np.random.choice(folds_ids_list[i]))
         training_folds = [tid for tid in folds_ids_list[i]
@@ -408,7 +406,6 @@ def prepare_fold_configurations(n_folds, model_path, seed=42):
             'testing_fold': testing_fold,
             'validation_fold': validation_fold,
             'training_folds': training_folds,
-            'model_fold_path': model_fold_path
         }
         fold_configurations.append(fold_entry)
     return fold_configurations
@@ -438,8 +435,38 @@ def get_dataset_size(dataset: tf.data.Dataset,
 
 def check_positive_integers(**kwargs):
     failed_args = {name: value for name, value in kwargs.items() if not (
-        isinstance(value, int) and value > 0)}
+        isinstance(value, int) and value >= 0)}
     return failed_args
+
+
+def process_fold_list_env(fold_list_env: str, n_folds: int) -> list:
+    """
+    Process the fold list string extracted from the environment variable
+    into a list of integers and verify that the fold numbers are valid.
+    If the fold list is not set, the function returns a list of all fold's integer indices.
+
+    Args:
+        fold_list_env (str): The string containing the fold list set in the environment variable.
+        n_folds (int): The total number of folds.
+
+    Returns:
+        list: The list of integers.
+    """
+    fold_range = list(range(0, n_folds - 1))
+    if fold_list_env is None:
+        fold_list = fold_range
+    else:
+        fold_list = fold_list_env.replace(' ', '').split(',')
+        fold_list = [int(fold) for fold in fold_list]
+        for fold_id in fold_list:
+            if fold_id not in fold_range:
+                raise ValueError(
+                    f"Invalid fold number: {fold_id}."
+                    f" FOLD_LIST must be a comma-separated list of integers"
+                    f" ranging from 0 to {n_folds - 1}\n"
+                    f"Example: '0,1,2,3,9' or '8,4'"
+                )
+    return fold_list
 
 
 def train_k_folds(
@@ -454,7 +481,7 @@ def train_k_folds(
         iterations_per_epoch: int,
         batch_size: int,
         n_folds: int,
-        n_folds_to_run: int):
+        fold_list_env: str):
     """
     Trains a model using k-fold cross-validation, and performs evaluation on the left-out fold.
     At the end, an average model is created and evaluated on all folds.
@@ -483,17 +510,18 @@ def train_k_folds(
         batch_size=batch_size,
         iterations_per_epoch=iterations_per_epoch,
         num_epochs=num_epochs,
-        n_folds=n_folds,
-        n_folds_to_run=n_folds_to_run
+        n_folds=n_folds
     )
     if failed_args:
         failed_msg = ', '.join(
-            f"{name}={value}" for name, value in failed_args.items())
+            f"{name}={value}({type(value)})" for name, value in failed_args.items())
         raise ValueError(
             f"The following arguments must be positive integers: {failed_msg}")
-    if n_folds_to_run > n_folds:
+    try:
+        fold_list = process_fold_list_env(fold_list_env, n_folds)
+    except Exception as e:
         raise ValueError(
-            "n_folds_to_run must be less than or equal to n_folds")
+            f"Error processing fold list: {fold_list}") from e
 
     # Dump hyperparameters and model configuration to json
     with open(f'{model_folder}/hyperparameters.json', 'w') as jfile:
@@ -517,21 +545,38 @@ def train_k_folds(
     LOGGER.info(
         f'With a batch size of {batch_size}, this corresponds to {img_count} images')
 
-    # Prepare fold configurations
-    fold_configurations = prepare_fold_configurations(n_folds, model_folder)
+    # Prepare and log fold configurations
+    LOGGER.info(
+        f"\n\n======================== Fold Configurations ========================")
+    n_folds_to_run = len(fold_list)
+    fold_configurations = prepare_fold_configurations(n_folds)
     models = []
+    fold_info_str = f"Running {n_folds_to_run} fold configurations out of the possible {n_folds}:"
+    fold_config_filtered = []
+    for i, fold_entry in enumerate(fold_configurations):
+        if i in fold_list:
+            fold_info_str += f'\nFOLD {i} : '
+            fold_entry = fold_configurations[i]
+            fold_info_str += json.dumps(fold_entry)
+            model_fold_path = os.path.join(
+                model_folder, f'fold_{i}_{model_name}')
+            os.makedirs(model_fold_path, exist_ok=True)
+            fold_entry['model_fold_path'] = model_fold_path
+            fold_config_filtered.append(fold_entry)
+        else:
+            fold_info_str += f'\nFOLD {i} : SKIPPED'
+    LOGGER.info(f'{fold_info_str}')
 
-    fold_counter = 0
-    for i, (fold_entry) in enumerate(fold_configurations):
-
+    # Start training
+    for index, fold_entry in enumerate(fold_config_filtered):
         LOGGER.info(
-            f"\n\n============================= Fold {i + 1}/{n_folds_to_run} ============================="
+            f"\n\n============================= Fold {index + 1}/{n_folds_to_run} ============================="
         )
         # Set up training and validation datasets
         fold_val = fold_entry['validation_fold']
         folds_train = fold_entry['training_folds']
         fold_test = fold_entry['testing_fold']
-        model_path = fold_entry['model_fold_path']
+        model_fold_path = fold_entry['model_fold_path']
 
         ds_folds_train = [ds_folds[tid] for tid in folds_train]
         ds_train = reduce(tf.data.Dataset.concatenate, ds_folds_train)
@@ -541,7 +586,7 @@ def train_k_folds(
         df_val_size = get_dataset_size(ds_val, img_count=True)
         df_test_size = get_dataset_size(ds_folds[fold_test], img_count=True)
         LOGGER.info(
-            f'Train folds {folds_train}\n\tsize: {df_train_size} images \n'
+            f'\nTrain folds {folds_train}\n\tsize: {df_train_size} images \n'
             f'Val fold: {fold_val}\n\tsize: {df_val_size} images \n'
             f'Test fold: {fold_test}\n\tsize: {df_test_size} images')
 
@@ -549,20 +594,15 @@ def train_k_folds(
             # repeat dataset only if not using all training data
             ds_train = ds_train.repeat()
 
-        # # If the strategy is MultiWorker, wrap the datasets in a DistributedDataset
-        # if type(strategy) == tf.distribute.MultiWorkerMirroredStrategy:
-        #     ds_train = strategy.experimental_distribute_dataset(ds_train)
-        #     ds_val = strategy.experimental_distribute_dataset(ds_val)
-
         # Perform fitting using the strategy scope
         with strategy.scope():
             init_start = time.time()
             model = initialise_model(
                 input_shape, model_config, chkpt_folder=chkpt_folder)
-            callbacks = initialise_callbacks(model_path)
+            callbacks = initialise_callbacks(model_fold_path)
             init_end = time.time()
             init_duration = init_end - init_start
-            LOGGER.info(f'Training model, writing to {model_path}')
+            LOGGER.info(f'Training model, writing to {model_fold_path}')
 
             # Fit model
             fitting_start_time = time.time()
@@ -598,10 +638,10 @@ def train_k_folds(
             testing_end_time = time.time()
             testing_duration = testing_end_time - testing_start_time
             evaluation_dict = dict(zip(model.net.metrics_names, evaluation))
-            evaluation_path = os.path.join(model_path, 'evaluation.json')
+            evaluation_path = os.path.join(model_fold_path, 'evaluation.json')
             with open(evaluation_path, 'w') as jfile:
                 json.dump(evaluation_dict, jfile, indent=4)
-            LOGGER.info(f'\tEvaluation results saved to {model_path}')
+            LOGGER.info(f'\tEvaluation results saved to {model_fold_path}')
 
             # Registering fold configuration and training duration
             fold_duration = init_duration + fitting_duration + testing_duration
@@ -621,14 +661,10 @@ def train_k_folds(
                 'fitting_duration': fitting_duration,
                 'testing_duration': testing_duration
             }
-            fold_data_path = os.path.join(model_path, 'fold_infos.json')
+            fold_data_path = os.path.join(model_fold_path, 'fold_infos.json')
             with open(fold_data_path, 'w') as jfile:
                 json.dump(fold_infos, jfile, indent=4)
-        LOGGER.info(f'Fold {fold_test} completed')
-        fold_counter += 1
-        if fold_counter == n_folds_to_run:
-            LOGGER.info(f'Reached {n_folds_to_run} folds, stopping')
-            break
+        LOGGER.info(f'Fold {index} completed')
     LOGGER.info(f'All {n_folds_to_run} folds completed')
 
     # Creating average model
@@ -640,34 +676,38 @@ def train_k_folds(
                 'Only the chief worker creates the average model, skipping')
             return
 
-    LOGGER.info('Create average model')
-    weights = [model.net.get_weights() for model in models]
-    avg_weights = [np.array([np.array(w).mean(axis=0) for w in zip(*weights_list_tuple)])
-                   for weights_list_tuple in zip(*weights)]
-    avg_model = initialise_model(input_shape, model_config)
-    avg_model.net.set_weights(avg_weights)
-    now = datetime.now(TIMEZONE).isoformat(
-        sep='-', timespec='seconds').replace(':', '-')
-    model_path = f'{model_folder}/{model_name}_avg_{now}'
-    LOGGER.info('Save average model to local path')
-    if not os.path.exists(model_path):
-        os.makedirs(model_path)
-    checkpoints_path = os.path.join(model_path, 'checkpoints', 'model.ckpt')
-    avg_model.net.save_weights(checkpoints_path)
+    # If we are running only a single fold, no need to create an average model
+    if n_folds_to_run == 1:
+        LOGGER.info('Only one fold was run, no average model created')
+        return
+    else:
+        LOGGER.info('Creating average model')
+        weights = [model.net.get_weights() for model in models]
+        avg_weights = [np.array([np.array(w).mean(axis=0) for w in zip(*weights_list_tuple)])
+                       for weights_list_tuple in zip(*weights)]
+        avg_model = initialise_model(input_shape, model_config)
+        avg_model.net.set_weights(avg_weights)
+        avg_model_path = f'{model_folder}/avg_{model_name}'
+        os.makedirs(avg_model_path, exist_ok=True)
+        checkpoints_path = os.path.join(
+            avg_model_path, 'checkpoints', 'model.ckpt')
+        LOGGER.info(f'Average model saved to {avg_model_path}')
+        avg_model.net.save_weights(checkpoints_path)
 
-    # Evaluate average model on all folds
-    for fold_entry in fold_configurations:
-        testing_id = fold_entry['testing_fold']
-        LOGGER.info(
-            f'Evaluating average model on left-out fold {testing_id}')
-        avg_evaluation = avg_model.net.evaluate(ds_folds[testing_id])
-        avg_evaluation_dict = dict(
-            zip(avg_model.net.metrics_names, avg_evaluation))
-        evaluation_path = os.path.join(model_path, 'evaluation_avg.json')
-        with open(evaluation_path, 'w') as jfile:
-            json.dump(avg_evaluation_dict, jfile, indent=4)
+        # Evaluate average model on all folds
+        for fold_entry in fold_configurations:
+            testing_id = fold_entry['testing_fold']
             LOGGER.info(
-                f'\tEvaluation results for average model saved to {evaluation_path}')
+                f'Evaluating average model on left-out fold {testing_id}')
+            avg_evaluation = avg_model.net.evaluate(ds_folds[testing_id])
+            avg_evaluation_dict = dict(
+                zip(avg_model.net.metrics_names, avg_evaluation))
+            evaluation_path = os.path.join(
+                avg_model_path, 'evaluation_avg.json')
+            with open(evaluation_path, 'w') as jfile:
+                json.dump(avg_evaluation_dict, jfile, indent=4)
+                LOGGER.info(
+                    f'\tEvaluation results for average model saved to {evaluation_path}')
 
     # Save training duration
     train_full_end_time = time.time()
@@ -703,6 +743,6 @@ if __name__ == '__main__':
         iterations_per_epoch=HYPER_PARAM_CONFIG['iterations_per_epoch'],
         batch_size=HYPER_PARAM_CONFIG['batch_size'],
         n_folds=HYPER_PARAM_CONFIG['n_folds'],
-        n_folds_to_run=HYPER_PARAM_CONFIG['n_folds_to_run']
+        fold_list_env=HYPER_PARAM_CONFIG['fold_list'],
     )
     LOGGER.info('Training completed')
