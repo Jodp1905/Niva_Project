@@ -31,7 +31,7 @@ if [ "$tracing_tool" != "darshan" ] && [ "$tracing_tool" != "nsight" ]; then
 fi
 
 # Training parameters
-export N_FOLDS_TO_RUN=1
+export FOLD_LIST="0"
 export NUM_EPOCHS=1
 
 # Darshan Parameters

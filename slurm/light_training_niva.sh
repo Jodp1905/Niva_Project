@@ -8,7 +8,6 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task 32
-#SBATCH --nodelist=x440-05
 
 # Parameters
 PYTHON_VENV_PATH="/home/jrisse/venv-niva"
@@ -18,7 +17,7 @@ PYTHON_SCRIPT_DIR="/home/jrisse/niva/Niva_Project/scripts"
 source $PYTHON_VENV_PATH/bin/activate
 
 # Set environment variables
-export N_FOLDS_TO_RUN=1
+export FOLD_LIST="0"
 export NUM_EPOCHS=1
 
 # Run training
