@@ -118,6 +118,7 @@ ${NSIGHT_PATH}/nsys profile \
 --lustre-volumes=all,\
 --lustre-llite-dir="${LUSTRE_LLITE_DIR}" \
 --output="${NSIGHT_LOGS_DIR}/${run_name}" \
+--python-sampling=true \
 python3 \
 "${training_path}" \
 "${run_name}"
