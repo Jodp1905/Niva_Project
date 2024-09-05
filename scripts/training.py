@@ -149,6 +149,22 @@ MODEL_CONFIG = {
 }
 
 
+@tf.function
+def mcc_metric(y_t, y_p, threshold=0.5):
+    # Matthew Correlation Coefficient implementation
+    # https://stackoverflow.com/questions/56865344/how-do-i-calculate-the-matthews-correlation-coefficient-in-tensorflow
+    y_true = y_t[..., -1]
+    y_pred = y_p[..., -1]
+    predicted = tf.cast(tf.greater(y_pred, threshold), tf.float32)
+    true_pos = tf.math.count_nonzero(predicted * y_true)
+    true_neg = tf.math.count_nonzero((predicted - 1) * (y_true - 1))
+    false_pos = tf.math.count_nonzero(predicted * (y_true - 1))
+    false_neg = tf.math.count_nonzero((predicted - 1) * y_true)
+    x = tf.cast((true_pos + false_pos) * (true_pos + false_neg)
+                * (true_neg + false_pos) * (true_neg + false_neg), tf.float32)
+    return tf.cast((true_pos * true_neg) - (false_pos * false_neg), tf.float32) / tf.sqrt(x)
+
+
 class PerformanceLoggingCallback(tf.keras.callbacks.Callback):
     """
     Callback for logging performance metrics during training.
@@ -296,8 +312,14 @@ def initialise_model(input_shape, model_config, chkpt_folder=None):
               'distance': TanimotoDistanceLoss(from_logits=False)},
         optimizer=tf.keras.optimizers.Adam(
             learning_rate=model_config['learning_rate']),
-        metrics=[segmentation_metrics['accuracy'](),
-                 tf.keras.metrics.MeanIoU(num_classes=2)])
+        metrics=[
+            segmentation_metrics['accuracy'](),
+            tf.keras.metrics.MeanIoU(
+                num_classes=2,
+                sparse_y_true=False,
+                sparse_y_pred=False),
+            mcc_metric
+        ])
 
     if chkpt_folder is not None:
         model.net.load_weights(f'{chkpt_folder}/model.ckpt')
