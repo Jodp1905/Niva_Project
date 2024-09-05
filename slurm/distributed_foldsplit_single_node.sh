@@ -16,7 +16,7 @@ export FOLD_LIST="$my_index"
 
 # Run the training script
 slurm_jobid=$SLURM_JOB_ID
-training_name="distributed_training_${slurm_jobid}_fold_${my_index}"
+training_name="training_foldsplit_${slurm_jobid}"
 echo "Starting training $training_name on node $my_hostname"
 python3 $PYTHON_SCRIPT_DIR/training.py $training_name
 echo "Training $training_name completed on node $my_hostname"
