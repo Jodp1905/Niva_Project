@@ -474,7 +474,7 @@ def process_fold_list_env(fold_list_env: str, n_folds: int) -> list:
     Returns:
         list: The list of integers.
     """
-    fold_range = list(range(0, n_folds - 1))
+    fold_range = list(range(0, n_folds))
     if fold_list_env is None:
         fold_list = fold_range
     else:
@@ -543,7 +543,7 @@ def train_k_folds(
         fold_list = process_fold_list_env(fold_list_env, n_folds)
     except Exception as e:
         raise ValueError(
-            f"Error processing fold list: {fold_list}") from e
+            f"Error processing fold list: {fold_list_env}") from e
 
     # Dump hyperparameters and model configuration to json
     with open(f'{model_folder}/hyperparameters.json', 'w') as jfile:
