@@ -87,8 +87,7 @@ else
   run_name="training_${suffix}"
 fi
 niva_project_data_root_sanitized="${NIVA_PROJECT_DATA_ROOT%/}"
-output_dir="${niva_project_data_root_sanitized}/model/${run_name}"
-output_dir=$(realpath "${output_dir}")
+output_dir="${niva_project_data_root_sanitized}/models/${run_name}"
 mkdir -p "${output_dir}"
 echo "Output directory: ${output_dir}"
 
