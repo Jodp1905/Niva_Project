@@ -73,11 +73,46 @@ class LabelsToDict(object):
 
 
 def normalize_meanstd(ds_keys: dict, subtract: str = 'mean') -> dict:
-    """ Help function to normalise the features by the mean and standard deviation """
-    assert subtract in ['mean', 'median']
-    feats = tf.math.subtract(
-        tf.cast(ds_keys['features'], tf.float64), ds_keys[f'norm_meanstd_{subtract}'])
-    feats = tf.math.divide(feats, ds_keys['norm_meanstd_std'])
+    """ 
+    Help function to normalise the features by the mean and standard deviation.
+    This is a normalization function that follows recent state-of-the-art solutions.
+    There are two methods, that depends on mean, std = None parameters to method normalize.
+    If mean, std = None, than this algorithm will be as in https://github.com/antofuller/CROMA, 
+    else as in https://github.com/zhu-xlab/SSL4EO-S12/blob/main/src/download_data/convert_rgb.py
+    """
+    # code for normalization follows parameters here
+    # https://github.com/zhu-xlab/SSL4EO-S12/blob/main/src/download_data/convert_rgb.py
+    S2A_MEAN = {
+        'B2': 889.6,
+        'B3': 1151.7,
+        'B4': 1307.6,
+        'B8': 2538.9, }
+    S2A_STD = {
+        'B2': 1159.1,
+        'B3': 1188.1,
+        'B4': 1375.2,
+        'B8': 1476.4, }
+    mean = tf.constant(list(S2A_MEAN.values()), dtype=tf.float64)
+    std = tf.constant(list(S2A_STD.values()), dtype=tf.float64)
+
+    def normalize(feats, mean=None, std=None):
+        # follows normalization presented https://github.com/zhu-xlab/SSL4EO-S12/tree/main
+        feats = tf.cast(feats, tf.float64)
+        if mean is None or std is None:
+            # normalization method follows presented here https://github.com/antofuller/CROMA
+            # axis to reduce, all except last where bands are
+            inds = list(range(len(feats.shape) - 1))
+            std = tf.math.reduce_std(feats, inds)
+            mean = tf.math.reduce_mean(feats, inds)
+        std_2 = tf.math.multiply(tf.constant(2.0, dtype=tf.float64), std)
+        min_value = tf.math.subtract(mean, std_2)
+        max_value = tf.math.add(mean, std_2)
+        div = tf.math.subtract(max_value, min_value)
+        feats = tf.math.subtract(feats, min_value)
+        feats = tf.math.divide(feats, div)
+        feats = tf.clip_by_value(feats, clip_value_min=0., clip_value_max=1.)
+        return feats
+    feats = normalize(ds_keys['features'], mean=mean, std=std)
     ds_keys['features'] = feats
     return ds_keys
 
