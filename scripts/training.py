@@ -124,7 +124,7 @@ TIMEZONE = pytz.timezone('Europe/Paris')
 # Paths parameters
 NIVA_PROJECT_DATA_ROOT = os.getenv('NIVA_PROJECT_DATA_ROOT')
 DATASET_FOLDER = Path(f'{NIVA_PROJECT_DATA_ROOT}/datasets/')
-MODEL_FOLDER = Path(f'{NIVA_PROJECT_DATA_ROOT}/model/')
+MODEL_FOLDER = Path(f'{NIVA_PROJECT_DATA_ROOT}/models/')
 
 # Model configuration (should not be changed)
 MODEL_CONFIG = {
