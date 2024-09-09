@@ -52,7 +52,9 @@ sleep 10
 
 # Python training environment variables
 export TRAINING_TYPE="MultiWorker"
-export N_FOLDS_TO_RUN=1
+# export FOLD_LIST="0"
+# export NUM_EPOCHS=1
+# export ITERATIONS_PER_EPOCH=20
 
 # Run the training script
 slurm_jobid=$SLURM_JOB_ID

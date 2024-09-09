@@ -8,6 +8,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=32
+#SBATCH --exclusive
 
 # Path Parameters
 PYTHON_VENV_PATH="/home/jrisse/venv-niva"
@@ -23,6 +24,7 @@ TRACING_TOOL="darshan" # darshan or nsight
 # Training parameters
 export FOLD_LIST="0"
 export NUM_EPOCHS=1
+# export ITERATIONS_PER_EPOCH=20
 
 # Tracing tool choice are both cannot be used at the same time
 if [ "$ENABLE_TRACING" -eq 1 ]; then

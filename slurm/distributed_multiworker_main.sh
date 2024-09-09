@@ -8,6 +8,7 @@
 #SBATCH --nodes=4
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task 32
+#SBATCH --exclusive
 
 LOG_DIR="/home/jrisse/niva/slurm_${SLURM_JOB_ID}_multiworker_${SLURM_JOB_NUM_NODES}nodes_logs"
 mkdir -p $LOG_DIR
