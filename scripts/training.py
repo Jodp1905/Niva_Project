@@ -2,7 +2,6 @@
 import os
 import json
 import logging
-from datetime import datetime
 import numpy as np
 from pathlib import Path
 import pytz
@@ -78,15 +77,14 @@ else:
         f"Must be one of: {', '.join(TrainingType.__members__.keys())}")
     exit(1)
 
-# Import model-related functions
-from eoflow.models.segmentation_base import segmentation_metrics
-from eoflow.models.losses import TanimotoDistanceLoss
-from eoflow.models.segmentation_unets import ResUnetA
+# Model related imports, have to be done after setting up the strategy
+from model import get_average_from_models, initialise_model
+from model import INPUT_SHAPE, MODEL_NAME, MODEL_CONFIG
 
 # autopep8: on
 
-# Model hyperparameters
-HYPER_PARAM_CONFIG = {
+# Training hyperparameters
+TRAINING_CONFIG = {
     # Number of full passes through the dataset
     "num_epochs": int(os.getenv('NUM_EPOCHS', 20)),
     # Number of samples processed per batch
@@ -97,13 +95,12 @@ HYPER_PARAM_CONFIG = {
     "n_folds": 10,
     # Allow to run only a subset of the folds
     "fold_list": os.getenv('FOLD_LIST', None),
-    # If True, repeats dataset and use iterations_per_epoch during model fit
-    "repeat_dataset": False,
-    # Number of batches processed per epoch, used only if repeat_dataset is True
+    # Number of batches processed per epoch
+    # Default is None, and the full dataset is processed
     # Should correspond to the number of samples in a training fold dataset
-    "iterations_per_epoch": int(os.getenv('ITERATIONS_PER_EPOCH', 2500)),
-    # TODO : full_profiling eats all available memory, implement periodic flushing
+    "iterations_per_epoch": int(os.getenv('ITERATIONS_PER_EPOCH', -1)),
     # Enable detailed profiling/tracing with TensorBoard
+    # TODO : full_profiling eats all available memory, implement periodic flushing
     "tf_full_profiling": False,
     # Enable data prefetching runtime optimization
     "prefetch_data": True,
@@ -125,44 +122,6 @@ TIMEZONE = pytz.timezone('Europe/Paris')
 NIVA_PROJECT_DATA_ROOT = os.getenv('NIVA_PROJECT_DATA_ROOT')
 DATASET_FOLDER = Path(f'{NIVA_PROJECT_DATA_ROOT}/datasets/')
 MODEL_FOLDER = Path(f'{NIVA_PROJECT_DATA_ROOT}/models/')
-
-# Model configuration (should not be changed)
-MODEL_CONFIG = {
-    "learning_rate": 0.0001,
-    "n_layers": 3,
-    "n_classes": 2,
-    "keep_prob": 0.8,
-    "features_root": 32,
-    "conv_size": 3,
-    "conv_stride": 1,
-    "dilation_rate": [1, 3, 15, 31],
-    "deconv_size": 2,
-    "add_dropout": True,
-    "add_batch_norm": False,
-    "use_bias": False,
-    "bias_init": 0.0,
-    "padding": "SAME",
-    "pool_size": 3,
-    "pool_stride": 2,
-    "prediction_visualization": True,
-    "class_weights": None
-}
-
-
-@tf.function
-def mcc_metric(y_t, y_p, threshold=0.5):
-    # Matthew Correlation Coefficient implementation
-    # https://stackoverflow.com/questions/56865344/how-do-i-calculate-the-matthews-correlation-coefficient-in-tensorflow
-    y_true = y_t[..., -1]
-    y_pred = y_p[..., -1]
-    predicted = tf.cast(tf.greater(y_pred, threshold), tf.float32)
-    true_pos = tf.math.count_nonzero(predicted * y_true)
-    true_neg = tf.math.count_nonzero((predicted - 1) * (y_true - 1))
-    false_pos = tf.math.count_nonzero(predicted * (y_true - 1))
-    false_neg = tf.math.count_nonzero((predicted - 1) * y_true)
-    x = tf.cast((true_pos + false_pos) * (true_pos + false_neg)
-                * (true_neg + false_pos) * (true_neg + false_neg), tf.float32)
-    return tf.cast((true_pos * true_neg) - (false_pos * false_neg), tf.float32) / tf.sqrt(x)
 
 
 class PerformanceLoggingCallback(tf.keras.callbacks.Callback):
@@ -290,43 +249,6 @@ class PerformanceLoggingCallback(tf.keras.callbacks.Callback):
         return model_size_gb
 
 
-def initialise_model(input_shape, model_config, chkpt_folder=None):
-    """
-    Initializes and compiles a model for field delineation.
-
-    Args:
-        input_shape (tuple): The shape of the input images.
-        model_config (dict): Configuration parameters for the model.
-        chkpt_folder (str, optional): Path to the folder containing model checkpoint.
-        Defaults to None.
-
-    Returns:
-        model: The compiled model for image field delineation.
-    """
-    model = ResUnetA(model_config)
-    model.build(dict(features=[None] + list(input_shape)))
-
-    model.net.compile(
-        loss={'extent': TanimotoDistanceLoss(from_logits=False),
-              'boundary': TanimotoDistanceLoss(from_logits=False),
-              'distance': TanimotoDistanceLoss(from_logits=False)},
-        optimizer=tf.keras.optimizers.Adam(
-            learning_rate=model_config['learning_rate']),
-        metrics=[
-            segmentation_metrics['accuracy'](),
-            tf.keras.metrics.MeanIoU(
-                num_classes=2,
-                sparse_y_true=False,
-                sparse_y_pred=False),
-            mcc_metric
-        ])
-
-    if chkpt_folder is not None:
-        model.net.load_weights(f'{chkpt_folder}/model.ckpt')
-
-    return model
-
-
 def initialise_callbacks(model_path):
     """
     Initialize callbacks for model training.
@@ -391,21 +313,20 @@ def load_and_process_dataset(dataset_folder, fold, batch_size):
     # batch
     dataset = dataset.batch(batch_size)
     # shard
-    if HYPER_PARAM_CONFIG['enable_data_sharding']:
+    if TRAINING_CONFIG['enable_data_sharding']:
         dataset = set_auto_shard_policy(dataset)
     # prefetch
-    if HYPER_PARAM_CONFIG['prefetch_data']:
+    if TRAINING_CONFIG['prefetch_data']:
         dataset = dataset.prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
     return dataset
 
 
-def prepare_fold_configurations(n_folds, seed=42):
+def prepare_fold_configurations(n_folds):
     """
     Prepare fold configurations for n-fold cross-validation.
 
     Args:
         n_folds (int): Number of folds for cross-validation.
-        model_path (str): Path to the model directory.
 
     Returns:
         list: List of dictionaries containing fold configurations.
@@ -416,14 +337,12 @@ def prepare_fold_configurations(n_folds, seed=42):
             - 'model_fold_path': Path to the model directory for the testing fold.
     """
     folds = list(range(n_folds))
-    folds_ids_list = [folds[:nf] + folds[1 + nf:] for nf in folds]
     fold_configurations = []
     for i in range(n_folds):
         testing_fold = folds[i]
-        np.random.seed(seed)
-        validation_fold = int(np.random.choice(folds_ids_list[i]))
-        training_folds = [tid for tid in folds_ids_list[i]
-                          if tid != validation_fold]
+        validation_fold = (i + 1) % n_folds
+        training_folds = [fold for fold in folds if fold !=
+                          testing_fold and fold != validation_fold]
         fold_entry = {
             'testing_fold': testing_fold,
             'validation_fold': validation_fold,
@@ -450,7 +369,7 @@ def get_dataset_size(dataset: tf.data.Dataset,
     if img_count is False:
         return num_samples
     else:
-        batch_size_global = HYPER_PARAM_CONFIG['batch_size']
+        batch_size_global = TRAINING_CONFIG['batch_size']
         num_imgs = num_samples * batch_size_global
         return num_imgs
 
@@ -530,10 +449,11 @@ def train_k_folds(
     # Arguments sanity check
     failed_args = check_positive_integers(
         batch_size=batch_size,
-        iterations_per_epoch=iterations_per_epoch,
         num_epochs=num_epochs,
         n_folds=n_folds
     )
+    if iterations_per_epoch is not None and iterations_per_epoch <= 0:
+        failed_args['iterations_per_epoch'] = iterations_per_epoch
     if failed_args:
         failed_msg = ', '.join(
             f"{name}={value}({type(value)})" for name, value in failed_args.items())
@@ -547,7 +467,7 @@ def train_k_folds(
 
     # Dump hyperparameters and model configuration to json
     with open(f'{model_folder}/hyperparameters.json', 'w') as jfile:
-        json.dump(HYPER_PARAM_CONFIG, jfile, indent=4)
+        json.dump(TRAINING_CONFIG, jfile, indent=4)
     with open(f'{model_folder}/model_cfg.json', 'w') as jfile:
         json.dump(model_config, jfile, indent=4)
 
@@ -612,8 +532,8 @@ def train_k_folds(
             f'Val fold: {fold_val}\n\tsize: {df_val_size} images \n'
             f'Test fold: {fold_test}\n\tsize: {df_test_size} images')
 
-        if HYPER_PARAM_CONFIG['repeat_dataset'] is True:
-            # repeat dataset only if not using all training data
+        if iterations_per_epoch is not None:
+            # repeat dataset if iterations_per_epoch is set
             ds_train = ds_train.repeat()
 
         # Perform fitting using the strategy scope
@@ -629,7 +549,7 @@ def train_k_folds(
             # Fit model
             fitting_start_time = time.time()
             try:
-                if HYPER_PARAM_CONFIG['repeat_dataset'] is True:
+                if iterations_per_epoch is not None:
                     # fit with steps_per_epoch as we repeat the dataset
                     model.net.fit(ds_train,
                                   validation_data=ds_val,
@@ -704,17 +624,9 @@ def train_k_folds(
         return
     else:
         LOGGER.info('Creating average model')
-        weights = [model.net.get_weights() for model in models]
-        avg_weights = [np.array([np.array(w).mean(axis=0) for w in zip(*weights_list_tuple)])
-                       for weights_list_tuple in zip(*weights)]
-        avg_model = initialise_model(input_shape, model_config)
-        avg_model.net.set_weights(avg_weights)
-        avg_model_path = f'{model_folder}/avg_{model_name}'
-        os.makedirs(avg_model_path, exist_ok=True)
-        checkpoints_path = os.path.join(
-            avg_model_path, 'checkpoints', 'model.ckpt')
-        LOGGER.info(f'Average model saved to {avg_model_path}')
-        avg_model.net.save_weights(checkpoints_path)
+        blank_model = initialise_model(input_shape, model_config)
+        avg_model, avg_model_path = get_average_from_models(
+            blank_model, models, model_folder, model_name)
 
         # Evaluate average model on all folds
         for fold_entry in fold_configurations:
@@ -753,18 +665,20 @@ if __name__ == '__main__':
     # Set up model folder
     model_folder = os.path.join(MODEL_FOLDER, run_name)
     os.makedirs(model_folder, exist_ok=True)
+    if TRAINING_CONFIG['iterations_per_epoch'] == -1:
+        TRAINING_CONFIG['iterations_per_epoch'] = None
     train_k_folds(
         strategy=STRATEGY,
         dataset_folder=DATASET_FOLDER,
         model_folder=model_folder,
-        model_name=HYPER_PARAM_CONFIG['model_name'],
+        model_name=MODEL_NAME,
         model_config=MODEL_CONFIG,
-        input_shape=HYPER_PARAM_CONFIG['input_shape'],
-        chkpt_folder=HYPER_PARAM_CONFIG['chkpt_folder'],
-        num_epochs=HYPER_PARAM_CONFIG['num_epochs'],
-        iterations_per_epoch=HYPER_PARAM_CONFIG['iterations_per_epoch'],
-        batch_size=HYPER_PARAM_CONFIG['batch_size'],
-        n_folds=HYPER_PARAM_CONFIG['n_folds'],
-        fold_list_env=HYPER_PARAM_CONFIG['fold_list'],
+        input_shape=INPUT_SHAPE,
+        chkpt_folder=TRAINING_CONFIG['chkpt_folder'],
+        num_epochs=TRAINING_CONFIG['num_epochs'],
+        iterations_per_epoch=TRAINING_CONFIG['iterations_per_epoch'],
+        batch_size=TRAINING_CONFIG['batch_size'],
+        n_folds=TRAINING_CONFIG['n_folds'],
+        fold_list_env=TRAINING_CONFIG['fold_list'],
     )
     LOGGER.info('Training completed')
