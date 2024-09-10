@@ -48,7 +48,9 @@ if TRAINING_TYPE_ENV == TrainingType.SingleWorker.name:
     devices = STRATEGY.extended.worker_devices
     hostname = socket.gethostname()
     LOGGER.info(
-        f"\n\n========================== Strategy Summary ==========================\n"
+        f"\n\n========================================"
+        f" Strategy Summary "
+        f"========================================\n"
         f"MirroredStrategy selected with {num_workers} workers on {hostname}\n"
         f"Devices: {devices}")
 elif TRAINING_TYPE_ENV == TrainingType.MultiWorker.name:
@@ -473,7 +475,9 @@ def train_k_folds(
 
     # Load datasets
     LOGGER.info(
-        f"\n\n========================== Dataset Loading ==========================")
+        f'\n\n========================================'
+        f' Dataset Loading '
+        f'=========================================')
     ds_folds = []
     sample_count = 0
     for fold in range(1, n_folds + 1):
@@ -489,7 +493,9 @@ def train_k_folds(
 
     # Prepare and log fold configurations
     LOGGER.info(
-        f"\n\n======================== Fold Configurations ========================")
+        f'\n\n======================================='
+        f' Fold Configurations '
+        f'======================================')
     n_folds_to_run = len(fold_list)
     fold_configurations = prepare_fold_configurations(n_folds)
     models = []
@@ -512,8 +518,9 @@ def train_k_folds(
     # Start training
     for index, fold_entry in enumerate(fold_config_filtered):
         LOGGER.info(
-            f"\n\n============================= Fold {index + 1}/{n_folds_to_run} ============================="
-        )
+            f'\n\n==========================================='
+            f' Fold {index + 1}/{n_folds_to_run} '
+            f'============================================')
         # Set up training and validation datasets
         fold_val = fold_entry['validation_fold']
         folds_train = fold_entry['training_folds']
@@ -541,11 +548,15 @@ def train_k_folds(
             init_start = time.time()
             model = initialise_model(
                 input_shape, model_config, chkpt_folder=chkpt_folder)
+            LOGGER.info(
+                f'\n========================================='
+                f' Model Summary '
+                f'==========================================')
+            model.net.summary()
+            model.net.count_params()
             callbacks = initialise_callbacks(model_fold_path)
             init_end = time.time()
             init_duration = init_end - init_start
-            LOGGER.info(f'Training model, writing to {model_fold_path}')
-
             # Fit model
             fitting_start_time = time.time()
             try:
