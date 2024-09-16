@@ -18,19 +18,21 @@ stdout_handler = logging.StreamHandler(sys.stdout)
 stdout_handler.addFilter(LogFileFilter())
 handlers = [stdout_handler]
 logging.basicConfig(
-    level=logging.INFO, format="[%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s", handlers=handlers
+    level=logging.INFO,
+    format="[%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s",
+    handlers=handlers
 )
 LOGGER = logging.getLogger(__name__)
 
 # Define paths
 NIVA_PROJECT_DATA_ROOT = os.getenv('NIVA_PROJECT_DATA_ROOT')
-PATCHLETS_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/eopatches/')
+EOPTACHES_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/eopatches/')
 NPZ_FILES_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/npz_files/')
 METADATA_PATH = Path(f'{NIVA_PROJECT_DATA_ROOT}/patchlets_dataframe.csv')
 
 # Parameters
-# Number of patchlets data concatenated in each .npz end file
-NPZ_NB_CHUNKS = int(os.getenv('NPZ_NB_CHUNKS', 100))
+# Number of eopatches data concatenated in each .npz binary file
+NPZ_CHUNK_SIZE = int(os.getenv('NPZ_CHUNK_SIZE', 20))
 PROCESS_POOL_WORKERS = int(os.getenv('PROCESS_POOL_WORKERS', os.cpu_count()))
 
 
@@ -190,47 +192,61 @@ def patchlets_to_npz_files():
     Returns:
     None
     """
-    patchlet_paths = [
-        patchlet for patchlet in PATCHLETS_DIR.iterdir() if patchlet.is_dir()]
-    random.shuffle(patchlet_paths)
-
-    # Clean output directory
-    LOGGER.info(f'Cleaning output directory {NPZ_FILES_DIR}')
     NPZ_FILES_DIR.mkdir(parents=True, exist_ok=True)
-    for item in NPZ_FILES_DIR.iterdir():
-        if item.is_dir() and item.name.startswith('eopatch_'):
-            shutil.rmtree(item)
+    df_master_list = []
+    for fold in ["train", "val", "test"]:
+        eopatch_dir = EOPTACHES_DIR / fold
+        eopatches_paths = [
+            eopatch for eopatch in eopatch_dir.iterdir() if eopatch.is_dir()]
+        random.shuffle(eopatches_paths)
 
-    # Compute chunks
-    chunk_size = len(patchlet_paths) // NPZ_NB_CHUNKS
-    lost = len(patchlet_paths) % NPZ_NB_CHUNKS
-    chunks = [patchlet_paths[i:i + chunk_size]
-              for i in range(0, len(patchlet_paths) - lost, chunk_size)]
+        # Clean output directory
+        npz_dir = NPZ_FILES_DIR / fold
+        if npz_dir.exists():
+            LOGGER.info(
+                f'Detecting existing npz files directory: {npz_dir}, cleaning up')
+            shutil.rmtree(npz_dir)
+        npz_dir.mkdir(parents=True, exist_ok=True)
 
+        # Compute chunks
+        nb_chunks = len(eopatches_paths) // NPZ_CHUNK_SIZE
+        lost = len(eopatches_paths) % NPZ_CHUNK_SIZE
+        chunks = [eopatches_paths[i:i + NPZ_CHUNK_SIZE]
+                  for i in range(0, len(eopatches_paths) - lost, NPZ_CHUNK_SIZE)]
+        assert len(chunks) == nb_chunks
+
+        LOGGER.info(
+            f'Processing {len(eopatches_paths)} patchlets in {nb_chunks} chunks '
+            f'containing {NPZ_CHUNK_SIZE} eopatches each, with {lost} eopatches unused.')
+
+        # Process chunks in parallel
+        df_list = []
+        with ProcessPoolExecutor(max_workers=PROCESS_POOL_WORKERS) as executor:
+            futures = []
+            for chunk_index, chunk in enumerate(chunks):
+                future = executor.submit(
+                    process_chunk, chunk, chunk_index, NPZ_FILES_DIR)
+                futures.append(future)
+            for future in tqdm(as_completed(futures), total=len(futures), desc="Processing chunks"):
+                try:
+                    df = future.result()
+                    df_list.append(df)
+                except Exception as e:
+                    LOGGER.error(f'A task failed: {e}')
+        LOGGER.info('All chunks processed, writing metadata...')
+        if df_list:
+            df_concatenated = pd.concat(df_list).reset_index(drop=True)
+            df_concatenated['fold'] = fold
+            df_master_list.append(df_concatenated)
+        LOGGER.info(f'Finished processing {fold} fold')
+    master_df = pd.concat(df_master_list).reset_index(drop=True)
+    master_df.to_csv(METADATA_PATH, index=False)
+    num_eopatches = len(master_df['patchlet'].unique())
+    num_entries = len(master_df)
+    assert num_entries == num_eopatches * 6  # 6 time samples for each eopatch
     LOGGER.info(
-        f'Processing {len(patchlet_paths)} patchlets in {len(chunks)} chunks '
-        f'of size {chunk_size} each, with {lost} patchlets lost.')
-
-    # Process chunks in parallel
-    df_list = []
-    with ProcessPoolExecutor(max_workers=PROCESS_POOL_WORKERS) as executor:
-        futures = []
-        for chunk_index, chunk in enumerate(chunks):
-            future = executor.submit(
-                process_chunk, chunk, chunk_index, NPZ_FILES_DIR)
-            futures.append(future)
-        for future in tqdm(as_completed(futures), total=len(futures), desc="Processing chunks"):
-            try:
-                df = future.result()
-                df_list.append(df)
-            except Exception as e:
-                LOGGER.error(f'A task failed: {e}')
-    LOGGER.info('All chunks processed, writing metadata...')
-    if df_list:
-        df_concatenated = pd.concat(df_list).reset_index(drop=True)
-        df_concatenated.to_csv(METADATA_PATH, index=True,
-                               index_label='index', header=True)
-    LOGGER.info(f'Saved metadata to {METADATA_PATH}')
+        f'Finished processing all {num_eopatches} eopatches, flattened by time '
+        f'to {num_entries} entries and saved metadata to {METADATA_PATH}')
 
 
 if __name__ == '__main__':
