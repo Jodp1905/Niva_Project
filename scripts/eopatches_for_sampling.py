@@ -16,6 +16,7 @@ from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm import tqdm
 import numpy as np
+import shutil
 
 from filter import LogFileFilter
 
@@ -33,8 +34,7 @@ warnings.filterwarnings("ignore")
 
 # Define paths
 NIVA_PROJECT_DATA_ROOT = os.getenv('NIVA_PROJECT_DATA_ROOT')
-NC_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/sentinel2/images/FR/')
-MASK_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/sentinel2/masks/FR/')
+SENTINEL2_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/sentinel2/')
 EOPATCH_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/eopatches/')
 PROCESS_POOL_WORKERS = int(os.getenv('PROCESS_POOL_WORKERS', os.cpu_count()))
 
@@ -197,34 +197,49 @@ def create_all_eopatches() -> None:
         None
     """
     EOPATCH_DIR.mkdir(parents=True, exist_ok=True)
-    eopatch_dir = EOPATCH_DIR
-    nc_files = sorted([nc_path.absolute() for nc_path in NC_DIR.iterdir()
-                       if nc_path.is_file()])
-    mask_files = sorted([mask_path.absolute() for mask_path in MASK_DIR.iterdir()
-                         if mask_path.is_file()])
-    assert (len(nc_files) == len(mask_files))
-    file_tuples = list(zip(nc_files, mask_files))
+    for fold in ["train", "val", "test"]:
+        eopatch_dir = EOPATCH_DIR / fold
+        if eopatch_dir.exists():
+            LOGGER.info(
+                f"Detected existing EOPatch directory: {eopatch_dir}, cleaning up")
+            shutil.rmtree(eopatch_dir)
 
-    for nc_file, mask_file in file_tuples:
-        nc_id = "_".join(nc_file.stem.split('_')[:2])
-        mask_id = "_".join(mask_file.stem.split('_')[:2])
-        assert (nc_id == mask_id)
+        # detecting netcdf image files
+        eopatch_dir.mkdir(parents=True, exist_ok=True)
+        nc_dir = SENTINEL2_DIR / fold / 'images'
+        nc_files = sorted([nc_path.absolute() for nc_path in nc_dir.iterdir()
+                           if nc_path.is_file()])
+        # detecting tiff mask files
+        mask_dir = SENTINEL2_DIR / fold / 'masks'
+        mask_files = sorted([mask_path.absolute() for mask_path in mask_dir.iterdir()
+                            if mask_path.is_file()])
 
-    LOGGER.info(
-        f'Creating EOPatches from {len(file_tuples)} pairs of NetCDF and mask files')
-    with ProcessPoolExecutor(max_workers=PROCESS_POOL_WORKERS) as executor:
-        futures = []
-        with tqdm(total=len(file_tuples), desc="Creating eopatches") as pbar:
-            for nc_file, mask_file in file_tuples:
-                future = executor.submit(
-                    create_eopatch_from_nc_and_tiff, nc_file, mask_file, eopatch_dir)
-                futures.append(future)
-            for future in as_completed(futures):
-                try:
-                    future.result()
-                except Exception as e:
-                    LOGGER.error(f'A task failed: {e}')
-                pbar.update(1)
+        # asserting correctness of file pairs
+        assert (len(nc_files) == len(mask_files))
+        file_tuples = list(zip(nc_files, mask_files))
+        for nc_file, mask_file in file_tuples:
+            nc_id = "_".join(nc_file.stem.split('_')[:2])
+            mask_id = "_".join(mask_file.stem.split('_')[:2])
+            assert (nc_id == mask_id)
+
+        LOGGER.info(
+            f'Creating EOPatches from {len(file_tuples)} pairs '
+            f'of NetCDF and mask files for {fold} fold in {eopatch_dir}')
+        with ProcessPoolExecutor(max_workers=PROCESS_POOL_WORKERS) as executor:
+            futures = []
+            with tqdm(total=len(file_tuples), desc="Creating eopatches") as pbar:
+                for nc_file, mask_file in file_tuples:
+                    future = executor.submit(
+                        create_eopatch_from_nc_and_tiff, nc_file, mask_file, eopatch_dir)
+                    futures.append(future)
+                for future in as_completed(futures):
+                    try:
+                        future.result()
+                    except Exception as e:
+                        LOGGER.error(f'A task failed: {e}')
+                    pbar.update(1)
+        LOGGER.info(f'Created EOPatches for {fold} fold')
+    LOGGER.info('All EOPatches created')
 
 
 def main():
