@@ -157,7 +157,7 @@ def save_chunk(npys_dict: Tuple[np.ndarray, np.ndarray, np.ndarray,
         df (pd.DataFrame): A DataFrame containing the metadata of the saved chunk.
     """
     eopatches = [os.path.basename(eop) for eop in npys_dict[5]]
-    filename = f'patchlets_fd_{chunk_index}'
+    filename = f'eopatch_chunk_{chunk_index}'
     timestamps = pd.to_datetime(npys_dict[4], utc=True).tz_localize(None)
     np.savez(os.path.join(output_folder, f'{filename}.npz'),
              X=npys_dict[0],
@@ -225,7 +225,7 @@ def patchlets_to_npz_files():
             futures = []
             for chunk_index, chunk in enumerate(chunks):
                 future = executor.submit(
-                    process_chunk, chunk, chunk_index, NPZ_FILES_DIR)
+                    process_chunk, chunk, chunk_index, npz_dir)
                 futures.append(future)
             for future in tqdm(as_completed(futures), total=len(futures), desc="Processing chunks"):
                 try:
@@ -233,20 +233,21 @@ def patchlets_to_npz_files():
                     df_list.append(df)
                 except Exception as e:
                     LOGGER.error(f'A task failed: {e}')
-        LOGGER.info('All chunks processed, writing metadata...')
         if df_list:
             df_concatenated = pd.concat(df_list).reset_index(drop=True)
             df_concatenated['fold'] = fold
             df_master_list.append(df_concatenated)
-        LOGGER.info(f'Finished processing {fold} fold')
+        LOGGER.info(
+            f'Finished processing {fold} fold, saved npz files to {npz_dir}')
     master_df = pd.concat(df_master_list).reset_index(drop=True)
-    master_df.to_csv(METADATA_PATH, index=False)
     num_eopatches = len(master_df['patchlet'].unique())
     num_entries = len(master_df)
     assert num_entries == num_eopatches * 6  # 6 time samples for each eopatch
     LOGGER.info(
         f'Finished processing all {num_eopatches} eopatches, flattened by time '
-        f'to {num_entries} entries and saved metadata to {METADATA_PATH}')
+        f'to {num_entries} entries')
+    master_df.to_csv(METADATA_PATH, index=False)
+    LOGGER.info(f'saved metadata to {METADATA_PATH}')
 
 
 if __name__ == '__main__':
