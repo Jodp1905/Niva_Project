@@ -7,8 +7,7 @@ from typing import Iterable, Dict
 from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm import tqdm
-
-from filter import LogFileFilter
+from scripts.filter import LogFileFilter
 
 # Configure logging
 stdout_handler = logging.StreamHandler(sys.stdout)

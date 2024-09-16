@@ -9,9 +9,7 @@ from numpy.random import default_rng
 import pandas as pd
 from pathlib import Path
 import shutil
-import time
-
-from filter import LogFileFilter
+from scripts.filter import LogFileFilter
 
 # Configure logging
 stdout_handler = logging.StreamHandler(sys.stdout)

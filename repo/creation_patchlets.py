@@ -10,8 +10,7 @@ from tqdm import tqdm
 import warnings
 import shutil
 import sys
-
-from filter import LogFileFilter
+from scripts.filter import LogFileFilter
 
 # Configure logging
 stdout_handler = logging.StreamHandler(sys.stdout)
