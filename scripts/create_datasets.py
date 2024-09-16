@@ -6,11 +6,10 @@ from tqdm.auto import tqdm
 from functools import partial
 import shutil
 from concurrent.futures import ProcessPoolExecutor, as_completed
-
-from tf_data_utils import (
-    npz_dir_dataset,
-    normalize_meanstd,
-    Unpack, ToFloat32, augment_data, FillNaN, OneMinusEncoding, LabelsToDict)
+from tf_data_utils import normalize_meanstd, augment_data
+from tf_data_utils import Unpack, ToFloat32, FillNaN, OneMinusEncoding, LabelsToDict
+import numpy as np
+from typing import List
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -18,29 +17,37 @@ LOGGER = logging.getLogger(__name__)
 
 # Paths parameters
 NIVA_PROJECT_DATA_ROOT = os.getenv('NIVA_PROJECT_DATA_ROOT')
-FOLDS_FOLDER = Path(f'{NIVA_PROJECT_DATA_ROOT}/folds/')
-DATASET_FOLDER = Path(f'{NIVA_PROJECT_DATA_ROOT}/datasets/')
-METADATA_PATH = Path(f'{NIVA_PROJECT_DATA_ROOT}/patchlets_dataframe_final.csv')
+NPZ_FILES_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/npz_files/')
+DATASET_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/datasets/')
+METADATA_PATH = Path(f'{NIVA_PROJECT_DATA_ROOT}/patchlets_dataframe.csv')
 
 # Dataset generation parameters
 NORMALIZER = dict(to_medianstd=partial(normalize_meanstd, subtract='median'))
-AUTOTUNE = tf.data.experimental.AUTOTUNE
+ENABLE_AUGMENTATION = True
 AUGMENTATIONS_FEATURES = ["flip_left_right",
                           "flip_up_down", "rotate", "brightness"]
 AUGMENTATIONS_LABEL = ["flip_left_right", "flip_up_down", "rotate"]
+
 N_FOLDS = int(os.getenv('N_FOLDS', 10))
 PROCESS_POOL_WORKERS = int(os.getenv('PROCESS_POOL_WORKERS', os.cpu_count()))
-NUM_SHARDS = int(os.getenv('NUM_SHARDS', 35))
 USE_FILE_SHARDING = False
+NUM_SHARDS = int(os.getenv('NUM_SHARDS', 35))
+SHUFFLE_BUFFER_SIZE = 2000
+INTERLEAVE_PARALLEL = 5
 
 
-def describe_tf_dataset(dataset, dataset_name, message, num_batches=5):
+def describe_tf_dataset(dataset, dataset_name, message, num_batches=3):
     """
-    Print and log a summary of a TensorFlow dataset.
+    Describes a TensorFlow dataset.
 
-    :param dataset: tf.data.Dataset to describe.
-    :param num_batches: Number of batches to inspect for summary statistics.
-    :param dataset_name: Name of the dataset to use in the log file name.
+    Args:
+        dataset: The TensorFlow dataset to describe.
+        dataset_name: The name of the dataset.
+        message: A message to include in the description.
+        num_batches: The number of batches to inspect (default is 3).
+
+    Returns:
+        None
     """
     LOGGER.debug(f"Inspection of dataset {dataset_name} : {message}")
     LOGGER.debug("Dataset description:")
@@ -61,7 +68,17 @@ def describe_tf_dataset(dataset, dataset_name, message, num_batches=5):
 
 def inspect_structure(element, prefix=''):
     """
-    Recursively inspect the structure of dataset elements and log the information.
+    Inspects the structure of the given element.
+
+    Parameters:
+        element (tf.Tensor, dict, tuple, list): The element to inspect.
+        prefix (str): The prefix to add to the log messages.
+
+    Returns:
+        None
+
+    Raises:
+        None
     """
     if isinstance(element, tf.Tensor):
         LOGGER.debug(f"{prefix}Shape: {element.shape}, Dtype: {element.dtype}")
@@ -78,147 +95,139 @@ def inspect_structure(element, prefix=''):
         LOGGER.debug(f"{prefix}Unsupported element type: {type(element)}")
 
 
-def get_dataset(fold_folder, metadata_path, fold, augment,
-                augmentations_features, augmentations_label,
-                num_parallel, randomize=True):
+def npz_file_lazy_dataset(file_path: str,
+                          fields: List[str],
+                          types: List[np.dtype],
+                          shapes: List[np.int32]) -> tf.data.Dataset:
     """
-    Creates and returns an augmented dataset for the given fold.
+    Creates a TensorFlow tf.data.Dataset from a NumPy .npz file.
 
     Args:
-        fold_folder (str): Path to the folder containing folds data.
-        metadata_path (str): Path to the metadata file.
-        fold (int): Fold number.
-        augment (bool): Whether to apply data augmentation.
-        augmentations_features (list): List of feature augmentations to apply.
-        augmentations_label (list): List of label augmentations to apply.
-        num_parallel (int): Number of parallel processes to use for dataset interleave.
-        randomize (bool, optional): Whether to randomize the dataset. Defaults to True.
+        file_path (str): The path to the .npz file.
+        fields (List[str]): The names of the fields to load from the .npz file.
+        types (List[np.dtype]): The data types of the fields.
+        shapes (List[np.int32]): The shapes of the fields.
 
     Returns:
-        tf.data.Dataset: The created dataset.
+        tf.data.Dataset: The TensorFlow dataset containing the loaded data.
+
+    Raises:
+        AssertionError: If the arrays in the .npz file do not have matching first dimensions.
 
     """
-    data = dict(X='features', y_extent='y_extent',
-                y_boundary='y_boundary', y_distance='y_distance')
-    fold_folder_path = os.path.join(fold_folder, f'fold_{fold}')
-    dataset = npz_dir_dataset(file_dir_or_list=fold_folder_path,
-                              features=data,
-                              metadata_path=metadata_path,
-                              fold=fold,
-                              randomize=randomize,
-                              num_parallel=num_parallel)
+    def _generator():
+        data = np.load(file_path)
+        np_arrays = [data[f] for f in fields]
+        # Check that arrays match in the first dimension
+        n_samples = np_arrays[0].shape[0]
+        assert all(n_samples == arr.shape[0] for arr in np_arrays)
+        # Iterate through the first dimension of arrays
+        for slices in zip(*np_arrays):
+            yield slices
+
+    output_signature = tuple(
+        tf.TensorSpec(shape=shape, dtype=dtype) for shape, dtype in zip(shapes, types))
+    ds = tf.data.Dataset.from_generator(_generator, output_signature)
+
+    # Converts a database of tuples to database of dicts
+    def _to_dict(*features):
+        return {'features': features[0],
+                'labels': [features[1], features[2], features[3]]}
+    ds = ds.map(_to_dict)
+    return ds
+
+
+def get_dataset(npz_folder: str, fold_type: str) -> tf.data.Dataset:
+    """
+    Retrieves a TensorFlow dataset from a folder containing npz files.
+
+    Args:
+        npz_folder (str): The path to the folder containing npz files.
+        fold_type (str): The type of fold.
+
+    Returns:
+        tf.data.Dataset: The TensorFlow dataset.
+
+    Raises:
+        ValueError: If no npz files are found in the given folder.
+    """
+    files = [os.path.join(npz_folder, f)
+             for f in os.listdir(npz_folder) if f.endswith('.npz')]
+    if not files:
+        raise ValueError(f"No npz files found in {npz_folder}")
+    fields = ["features", "y_extent", "y_boundary", "y_distance"]
+
+    # Read one file for shape info
+    file_test = files[0]
+    data_test = np.load(file_test)
+    print(data_test)
+    np_arrays = [data_test[f] for f in fields]
+
+    # Read shape and type info
+    shapes = tuple(arr.shape[1:] for arr in np_arrays)
+    types = (tf.uint16, tf.float32, tf.float32, tf.float32)
+
+    # Create datasets from npz files
+    datasets = [npz_file_lazy_dataset(
+        npz_file, fields, types, shapes) for npz_file in files]
+    ds = tf.data.Dataset.from_tensor_slices(datasets)
+
+    # Shuffle files and interleave multiple files in parallel
+    ds = ds.shuffle(buffer_size=SHUFFLE_BUFFER_SIZE)
+    ds = ds.interleave(lambda x: x,
+                       cycle_length=INTERLEAVE_PARALLEL,
+                       num_parallel_calls=tf.data.experimental.AUTOTUNE)
+
     if LOGGER.level == logging.DEBUG:
-        describe_tf_dataset(dataset, f"fold_{fold}", "Before augmentation")
+        describe_tf_dataset(dataset, fold_type, "Before augmentation")
     normalizer = NORMALIZER["to_medianstd"]
 
     augmentations = [augment_data(
-        augmentations_features, augmentations_label)] if augment else []
-    dataset_ops = [normalizer, Unpack(), ToFloat32()] \
-        + augmentations \
-        + [FillNaN(fill_value=-2),
-           OneMinusEncoding(
-            n_classes=2),
-           LabelsToDict(["extent", "boundary", "distance"])]
+        AUGMENTATIONS_FEATURES, AUGMENTATIONS_LABEL)] if ENABLE_AUGMENTATION else []
+    dataset_ops = [normalizer, Unpack(), ToFloat32()]
+    + augmentations
+    + [FillNaN(fill_value=-2),
+       OneMinusEncoding(
+        n_classes=2),
+       LabelsToDict(["extent", "boundary", "distance"])]
 
     for dataset_op in dataset_ops:
-        dataset = dataset.map(dataset_op, num_parallel_calls=AUTOTUNE)
+        LOGGER.info(f"Applying operation {dataset_op} to dataset")
+        dataset = dataset.map(
+            dataset_op, num_parallel_calls=tf.data.experimental.AUTOTUNE)
         if LOGGER.level == logging.DEBUG:
             op_str = dataset_op.__name__ if hasattr(
                 dataset_op, '__name__') else str(dataset_op)
-            describe_tf_dataset(dataset, f"fold_{fold}", f"After {op_str}")
+            describe_tf_dataset(dataset, fold_type, f"After {op_str}")
 
     if LOGGER.level == logging.DEBUG:
-        describe_tf_dataset(dataset, f"fold_{fold}", "After all operations")
+        describe_tf_dataset(dataset, fold_type, "After all operations")
     return dataset
 
 
-@tf.function
 def shard_func(element, index):
-    """Custom shard function that assigns shard IDs to dataset elements using a random distribution."""
     return tf.random.uniform((), minval=0, maxval=NUM_SHARDS, dtype=tf.int64)
 
 
-def save_dataset(folds_folder, metadata_path, dataset_folder, fold,
-                 augmentations_features, augmentations_label, num_parallel):
-    """
-    Saves the dataset for the given fold to the specified folder.
-
-    Args:
-        folds_folder (str): Path to the folder containing folds.
-        metadata_path (str): Path to the metadata file.
-        dataset_folder (str): Path to the folder where the dataset will be saved.
-        fold (int): Fold number, used to identify the fold data.
-        augmentations_features (list): List of feature augmentations to apply.
-        augmentations_label (list): List of label augmentations to apply.
-        num_parallel (int): Number of parallel processes to use for dataset interleave.
-
-    Returns:
-        None
-    """
-    dataset = get_dataset(folds_folder, metadata_path, fold, True,
-                          augmentations_features, augmentations_label, num_parallel)
-
-    dataset_path = os.path.join(dataset_folder, f'fold_{fold}')
-    if os.path.exists(dataset_path):
-        shutil.rmtree(dataset_path)
-    try:
-        if USE_FILE_SHARDING:
-            dataset.save(path=dataset_path, shard_func=shard_func)
-        else:
-            dataset.save(path=dataset_path)
-        LOGGER.info(f'Saved dataset for fold {fold} to {dataset_path}')
-    except Exception as e:
-        LOGGER.error(
-            f'Error saving dataset for fold {fold} to {dataset_path}: {e}')
-        raise
-
-
-def save_datasets_parallel(folds_folder, metadata_path, dataset_folder,
-                           augmentations_features, augmentations_label,
-                           n_folds, num_parallel=AUTOTUNE):
-    """
-    Saves the datasets for all folds in parallel.
-
-    Args:
-        folds_folder (str): Path to the folder containing folds.
-        metadata_path (str): Path to the metadata file.
-        dataset_folder (str): Path to the folder where datasets will be saved.
-        augmentations_features (list): List of feature augmentations to apply.
-        augmentations_label (list): List of label augmentations to apply.
-        n_folds (int): Number of folds.
-        num_parallel (int, optional): Number of parallel processes to use for dataset interleave. 
-        Defaults to AUTOTUNE.
-
-    Returns:
-        None
-    """
-    os.makedirs(dataset_folder, exist_ok=True)
-    futures = []
-    with ProcessPoolExecutor(max_workers=PROCESS_POOL_WORKERS) as executor:
-        for fold in range(1, n_folds + 1):
-            futures.append(executor.submit(save_dataset, folds_folder, metadata_path,
-                                           dataset_folder, fold, augmentations_features,
-                                           augmentations_label, num_parallel))
-        for future in tqdm(as_completed(futures), total=n_folds):
-            try:
-                future.result()
-            except Exception as e:
-                LOGGER.error(f"Error occurred: {e}")
-                exit(1)
-
-
 def create_datasets():
-    if LOGGER.level == logging.DEBUG:
-        # sequential for debugging
-        LOGGER.debug("Warning: Debug mode enabled, running sequentially")
-        for fold in range(1, N_FOLDS + 1):
-            save_dataset(FOLDS_FOLDER, METADATA_PATH, DATASET_FOLDER, fold,
-                         AUGMENTATIONS_FEATURES, AUGMENTATIONS_LABEL, AUTOTUNE)
-    else:
-        # parallel otherwise
-        save_datasets_parallel(FOLDS_FOLDER, METADATA_PATH, DATASET_FOLDER,
-                               AUGMENTATIONS_FEATURES, AUGMENTATIONS_LABEL, N_FOLDS)
+    for fold_type in ["train", "val", "test"]:
+        npz_folder = NPZ_FILES_DIR / fold_type
+        dataset_folder = DATASET_DIR / fold_type
+        if dataset_folder.exists():
+            LOGGER.info(
+                f"Dataset folder {dataset_folder} already exists, cleaning up")
+            shutil.rmtree(dataset_folder)
+        dataset_folder.mkdir(parents=True, exist_ok=True)
+        dataset = get_dataset(npz_folder, fold_type)
+        if USE_FILE_SHARDING:
+            dataset.save(path=dataset_folder, shard_func=shard_func)
+        else:
+            dataset.save(path=dataset_folder)
+        LOGGER.info(f"Saved dataset for fold {fold_type} to {dataset_folder}")
 
 
 if __name__ == '__main__':
+    if not NIVA_PROJECT_DATA_ROOT:
+        raise ValueError(
+            "NIVA_PROJECT_DATA_ROOT environment variable is not set")
     create_datasets()
