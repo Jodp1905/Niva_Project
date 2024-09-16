@@ -1,7 +1,7 @@
 from eopatches_for_sampling import create_all_eopatches
 from patchlets_to_npz import patchlets_to_npz_files
-from normalization import calculate_normalization_factors
-from create_kfold import k_folds
+from repo.normalization import calculate_normalization_factors
+from repo.creation_patchlets import create_patchlets
 from create_datasets import create_datasets
 from os import getenv
 import logging
@@ -35,21 +35,24 @@ def main():
         end_time = time.time()
         durations.append(('create_all_eopatches', end_time - start_time))
 
+        # SKIPPED : Patchlets creation is incompatible with resunet-a 6d model training
+        # because eopatches are already of size 256, the minimum size for the model
+        # start_time = time.time()
+        # create_patchlets()
+        # end_time = time.time()
+        # durations.append(('create_patchlets', end_time - start_time))
+
         start_time = time.time()
         patchlets_to_npz_files()
         end_time = time.time()
         durations.append(('patchlets_to_npz_files', end_time - start_time))
 
-        start_time = time.time()
-        calculate_normalization_factors()
-        end_time = time.time()
-        durations.append(
-            ('calculate_normalization_factors', end_time - start_time))
-
-        start_time = time.time()
-        k_folds()
-        end_time = time.time()
-        durations.append(('k_folds', end_time - start_time))
+        # SKIPPED : Normalization has been simplified and this step is no longer required
+        # start_time = time.time()
+        # calculate_normalization_factors()
+        # end_time = time.time()
+        # durations.append(
+        #     ('calculate_normalization_factors', end_time - start_time))
 
         start_time = time.time()
         create_datasets()
