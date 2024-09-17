@@ -33,7 +33,7 @@ PROCESS_POOL_WORKERS = int(os.getenv('PROCESS_POOL_WORKERS', os.cpu_count()))
 USE_FILE_SHARDING = False
 NUM_SHARDS = int(os.getenv('NUM_SHARDS', 35))
 SHUFFLE_BUFFER_SIZE = 2000
-INTERLEAVE_PARALLEL = 5
+INTERLEAVE_CYCLE_LENGTH = 5
 
 
 def describe_tf_dataset(dataset, dataset_name, message, num_batches=3):
@@ -97,7 +97,7 @@ def inspect_structure(element, prefix=''):
 
 def npz_file_lazy_dataset(file_path: str,
                           fields: List[str],
-                          types: List[np.dtype],
+                          types: List[tf.dtypes.DType],
                           shapes: List[np.int32]) -> tf.data.Dataset:
     """
     Creates a TensorFlow tf.data.Dataset from a NumPy .npz file.
@@ -105,7 +105,7 @@ def npz_file_lazy_dataset(file_path: str,
     Args:
         file_path (str): The path to the .npz file.
         fields (List[str]): The names of the fields to load from the .npz file.
-        types (List[np.dtype]): The data types of the fields.
+        types (List[tf.dtypes.DType]): The data types of the fields.
         shapes (List[np.int32]): The shapes of the fields.
 
     Returns:
@@ -113,7 +113,6 @@ def npz_file_lazy_dataset(file_path: str,
 
     Raises:
         AssertionError: If the arrays in the .npz file do not have matching first dimensions.
-
     """
     def _generator():
         data = np.load(file_path)
@@ -121,18 +120,24 @@ def npz_file_lazy_dataset(file_path: str,
         # Check that arrays match in the first dimension
         n_samples = np_arrays[0].shape[0]
         assert all(n_samples == arr.shape[0] for arr in np_arrays)
-        # Iterate through the first dimension of arrays
+        # Yield each sample (slice) as a tuple from the arrays
         for slices in zip(*np_arrays):
             yield slices
 
     output_signature = tuple(
-        tf.TensorSpec(shape=shape, dtype=dtype) for shape, dtype in zip(shapes, types))
-    ds = tf.data.Dataset.from_generator(_generator, output_signature)
+        tf.TensorSpec(shape=shape, dtype=dtype) for shape, dtype in zip(shapes, types)
+    )
+    ds = tf.data.Dataset.from_generator(
+        _generator, output_signature=output_signature)
 
-    # Converts a database of tuples to database of dicts
-    def _to_dict(*features):
-        return {'features': features[0],
-                'labels': [features[1], features[2], features[3]]}
+    # Converts a tuple of features into a dict with 'features' and 'labels'
+    def _to_dict(features, y_extent, y_boundary, y_distance):
+        return {
+            'features': features,
+            'labels': [y_extent, y_boundary, y_distance]
+        }
+
+    # Apply the map function to convert the tuples to the dict structure
     ds = ds.map(_to_dict)
     return ds
 
@@ -155,28 +160,26 @@ def get_dataset(npz_folder: str, fold_type: str) -> tf.data.Dataset:
              for f in os.listdir(npz_folder) if f.endswith('.npz')]
     if not files:
         raise ValueError(f"No npz files found in {npz_folder}")
+
     fields = ["features", "y_extent", "y_boundary", "y_distance"]
 
-    # Read one file for shape info
+    # Read one file for shape and type info
     file_test = files[0]
     data_test = np.load(file_test)
-    print(data_test)
     np_arrays = [data_test[f] for f in fields]
-
-    # Read shape and type info
     shapes = tuple(arr.shape[1:] for arr in np_arrays)
     types = (tf.uint16, tf.float32, tf.float32, tf.float32)
 
     # Create datasets from npz files
     datasets = [npz_file_lazy_dataset(
         npz_file, fields, types, shapes) for npz_file in files]
-    ds = tf.data.Dataset.from_tensor_slices(datasets)
+    dataset = tf.data.Dataset.from_tensor_slices(datasets)
 
     # Shuffle files and interleave multiple files in parallel
-    ds = ds.shuffle(buffer_size=SHUFFLE_BUFFER_SIZE)
-    ds = ds.interleave(lambda x: x,
-                       cycle_length=INTERLEAVE_PARALLEL,
-                       num_parallel_calls=tf.data.experimental.AUTOTUNE)
+    dataset = dataset.shuffle(buffer_size=SHUFFLE_BUFFER_SIZE)
+    dataset = dataset.interleave(lambda x: x,
+                                 cycle_length=INTERLEAVE_CYCLE_LENGTH,
+                                 num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
     if LOGGER.level == logging.DEBUG:
         describe_tf_dataset(dataset, fold_type, "Before augmentation")
@@ -184,15 +187,16 @@ def get_dataset(npz_folder: str, fold_type: str) -> tf.data.Dataset:
 
     augmentations = [augment_data(
         AUGMENTATIONS_FEATURES, AUGMENTATIONS_LABEL)] if ENABLE_AUGMENTATION else []
-    dataset_ops = [normalizer, Unpack(), ToFloat32()]
-    + augmentations
-    + [FillNaN(fill_value=-2),
-       OneMinusEncoding(
-        n_classes=2),
-       LabelsToDict(["extent", "boundary", "distance"])]
+    dataset_ops = (
+        [normalizer, Unpack(), ToFloat32()] +
+        augmentations +
+        [FillNaN(fill_value=-2),
+         OneMinusEncoding(n_classes=2),
+         LabelsToDict(["extent", "boundary", "distance"])]
+    )
 
     for dataset_op in dataset_ops:
-        LOGGER.info(f"Applying operation {dataset_op} to dataset")
+        LOGGER.info(f"Adding operation {dataset_op} to dataset")
         dataset = dataset.map(
             dataset_op, num_parallel_calls=tf.data.experimental.AUTOTUNE)
         if LOGGER.level == logging.DEBUG:
@@ -218,12 +222,14 @@ def create_datasets():
                 f"Dataset folder {dataset_folder} already exists, cleaning up")
             shutil.rmtree(dataset_folder)
         dataset_folder.mkdir(parents=True, exist_ok=True)
+        dataset_folder_path = dataset_folder.as_posix()
         dataset = get_dataset(npz_folder, fold_type)
         if USE_FILE_SHARDING:
-            dataset.save(path=dataset_folder, shard_func=shard_func)
+            dataset.save(path=dataset_folder_path, shard_func=shard_func)
         else:
-            dataset.save(path=dataset_folder)
-        LOGGER.info(f"Saved dataset for fold {fold_type} to {dataset_folder}")
+            dataset.save(path=dataset_folder_path)
+        LOGGER.info(
+            f"Saved dataset for fold {fold_type} to {dataset_folder_path}")
 
 
 if __name__ == '__main__':
