@@ -33,7 +33,7 @@ PROCESS_POOL_WORKERS = int(os.getenv('PROCESS_POOL_WORKERS', os.cpu_count()))
 USE_FILE_SHARDING = False
 NUM_SHARDS = int(os.getenv('NUM_SHARDS', 35))
 SHUFFLE_BUFFER_SIZE = 2000
-INTERLEAVE_CYCLE_LENGTH = 5
+INTERLEAVE_CYCLE_LENGTH = 10
 
 
 def describe_tf_dataset(dataset, dataset_name, message, num_batches=3):
@@ -176,8 +176,10 @@ def get_dataset(npz_folder: str, fold_type: str) -> tf.data.Dataset:
     dataset = tf.data.Dataset.from_tensor_slices(datasets)
 
     # Shuffle files and interleave multiple files in parallel
+    def no_op(x):
+        return x
     dataset = dataset.shuffle(buffer_size=SHUFFLE_BUFFER_SIZE)
-    dataset = dataset.interleave(lambda x: x,
+    dataset = dataset.interleave(no_op,
                                  cycle_length=INTERLEAVE_CYCLE_LENGTH,
                                  num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
@@ -196,7 +198,6 @@ def get_dataset(npz_folder: str, fold_type: str) -> tf.data.Dataset:
     )
 
     for dataset_op in dataset_ops:
-        LOGGER.info(f"Adding operation {dataset_op} to dataset")
         dataset = dataset.map(
             dataset_op, num_parallel_calls=tf.data.experimental.AUTOTUNE)
         if LOGGER.level == logging.DEBUG:
