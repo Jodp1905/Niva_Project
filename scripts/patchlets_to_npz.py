@@ -160,12 +160,10 @@ def save_chunk(npys_dict: Tuple[np.ndarray, np.ndarray, np.ndarray,
     filename = f'eopatch_chunk_{chunk_index}'
     timestamps = pd.to_datetime(npys_dict[4], utc=True).tz_localize(None)
     np.savez(os.path.join(output_folder, f'{filename}.npz'),
-             X=npys_dict[0],
+             features=npys_dict[0],
              y_boundary=npys_dict[1],
              y_extent=npys_dict[2],
-             y_distance=npys_dict[3],
-             timestamps=timestamps,
-             eopatches=npys_dict[5])
+             y_distance=npys_dict[3])
     df = pd.DataFrame(
         dict(chunk=[f'{filename}.npz'] * len(npys_dict[5]),
              eopatch=eopatches,
