@@ -2,7 +2,6 @@
 import os
 import json
 import logging
-import numpy as np
 from pathlib import Path
 import pytz
 import sys
@@ -82,6 +81,7 @@ else:
 # Model related imports, have to be done after setting up the strategy
 from model import get_average_from_models, initialise_model
 from model import INPUT_SHAPE, MODEL_NAME, MODEL_CONFIG
+from create_datasets import get_dataset
 
 # autopep8: on
 
@@ -93,27 +93,19 @@ TRAINING_CONFIG = {
     "batch_size": int(os.getenv('BATCH_SIZE', 8)),
     # Number of classes in the dataset (2 for binary labels)
     "n_classes": 2,
-    # Number of folds for cross-validation
-    "n_folds": 10,
-    # Allow to run only a subset of the folds
-    "fold_list": os.getenv('FOLD_LIST', None),
-    # Number of batches processed per epoch
-    # Default is None, and the full dataset is processed
-    # Should correspond to the number of samples in a training fold dataset
+    # Number of batches processed per epoch, default to -1 (full dataset)
     "iterations_per_epoch": int(os.getenv('ITERATIONS_PER_EPOCH', -1)),
+    # Use dataset or npz files
+    "use_npz": False,
     # Enable detailed profiling/tracing with TensorBoard
     # TODO : full_profiling eats all available memory, implement periodic flushing
     "tf_full_profiling": False,
     # Enable data prefetching runtime optimization
     "prefetch_data": True,
     # Enable data sharding runtime optimization
-    "enable_data_sharding": True,
+    "enable_data_sharding": False,
     # Path to the folder containing model checkpoint
     "chkpt_folder": None,
-    # Shape of the input images
-    "input_shape": [256, 256, 4],
-    # Name of the model
-    "model_name": "resunet-a"
 }
 
 # Timezone parameters
@@ -124,6 +116,7 @@ TIMEZONE = pytz.timezone('Europe/Paris')
 NIVA_PROJECT_DATA_ROOT = os.getenv('NIVA_PROJECT_DATA_ROOT')
 DATASET_FOLDER = Path(f'{NIVA_PROJECT_DATA_ROOT}/datasets/')
 MODEL_FOLDER = Path(f'{NIVA_PROJECT_DATA_ROOT}/models/')
+NPZ_FOLDER = Path(f'{NIVA_PROJECT_DATA_ROOT}/npz_files/')
 
 
 class PerformanceLoggingCallback(tf.keras.callbacks.Callback):
@@ -297,20 +290,18 @@ def set_auto_shard_policy(dataset):
     return dataset.with_options(options)
 
 
-def load_and_process_dataset(dataset_folder, fold, batch_size):
+def load_and_process_dataset(dataset_path, batch_size):
     """
     Loads and processes a dataset from the specified folder and fold.
     Apply runtime optimizations : batch, shard, prefetch.
 
     Args:
-        dataset_folder (str): The path to the dataset folder.
-        fold (int): The fold number.
+        dataset_path (str): The path to the dataset folder.
         batch_size (int): The batch size for the dataset.
 
     Returns:
         tf.data.Dataset: The loaded and processed dataset.
     """
-    dataset_path = os.path.join(dataset_folder, f'fold_{fold}')
     dataset = tf.data.Dataset.load(dataset_path)
     # batch
     dataset = dataset.batch(batch_size)
@@ -323,35 +314,28 @@ def load_and_process_dataset(dataset_folder, fold, batch_size):
     return dataset
 
 
-def prepare_fold_configurations(n_folds):
+def load_and_process_npz(dataset_path, batch_size, fold_type):
     """
-    Prepare fold configurations for n-fold cross-validation.
+    Loads and processes a dataset from NPZ files.
 
     Args:
-        n_folds (int): Number of folds for cross-validation.
+        dataset_path (str): The path to the dataset file in NPZ format.
+        batch_size (int): The size of the batches to create from the dataset.
+        fold_type (str): The type of fold to use for the dataset (e.g., 'train', 'validation', 'test').
 
     Returns:
-        list: List of dictionaries containing fold configurations.
-            Each dictionary contains the following keys:
-            - 'testing_fold': The index of the testing fold.
-            - 'validation_fold': The index of the validation fold.
-            - 'training_folds': List of indices of the training folds.
-            - 'model_fold_path': Path to the model directory for the testing fold.
+        tf.data.Dataset: A TensorFlow Dataset object that has been batched, optionally sharded, and prefetched.
     """
-    folds = list(range(n_folds))
-    fold_configurations = []
-    for i in range(n_folds):
-        testing_fold = folds[i]
-        validation_fold = (i + 1) % n_folds
-        training_folds = [fold for fold in folds if fold !=
-                          testing_fold and fold != validation_fold]
-        fold_entry = {
-            'testing_fold': testing_fold,
-            'validation_fold': validation_fold,
-            'training_folds': training_folds,
-        }
-        fold_configurations.append(fold_entry)
-    return fold_configurations
+    dataset = get_dataset(dataset_path, fold_type)
+    # batch
+    dataset = dataset.batch(batch_size)
+    # shard
+    if TRAINING_CONFIG['enable_data_sharding']:
+        dataset = set_auto_shard_policy(dataset)
+    # prefetch
+    if TRAINING_CONFIG['prefetch_data']:
+        dataset = dataset.prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
+    return dataset
 
 
 def get_dataset_size(dataset: tf.data.Dataset,
@@ -367,7 +351,9 @@ def get_dataset_size(dataset: tf.data.Dataset,
     Returns:
         int: The number of elements in the dataset.
     """
-    num_samples = dataset.reduce(0, lambda x, _: x + 1).numpy()
+    def add_one(x, _):
+        return x + 1
+    num_samples = dataset.reduce(0, add_one).numpy()
     if img_count is False:
         return num_samples
     else:
@@ -382,66 +368,28 @@ def check_positive_integers(**kwargs):
     return failed_args
 
 
-def process_fold_list_env(fold_list_env: str, n_folds: int) -> list:
-    """
-    Process the fold list string extracted from the environment variable
-    into a list of integers and verify that the fold numbers are valid.
-    If the fold list is not set, the function returns a list of all fold's integer indices.
-
-    Args:
-        fold_list_env (str): The string containing the fold list set in the environment variable.
-        n_folds (int): The total number of folds.
-
-    Returns:
-        list: The list of integers.
-    """
-    fold_range = list(range(0, n_folds))
-    if fold_list_env is None:
-        fold_list = fold_range
-    else:
-        fold_list = fold_list_env.replace(' ', '').split(',')
-        fold_list = [int(fold) for fold in fold_list]
-        for fold_id in fold_list:
-            if fold_id not in fold_range:
-                raise ValueError(
-                    f"Invalid fold number: {fold_id}."
-                    f" FOLD_LIST must be a comma-separated list of integers"
-                    f" ranging from 0 to {n_folds - 1}\n"
-                    f"Example: '0,1,2,3,9' or '8,4'"
-                )
-    return fold_list
-
-
-def train_k_folds(
+def training_main(
         strategy: tf.distribute.Strategy,
-        dataset_folder: str,
         model_folder: str,
-        model_name: str,
         model_config: dict,
         input_shape: tuple,
         chkpt_folder: str,
         num_epochs: int,
         iterations_per_epoch: int,
-        batch_size: int,
-        n_folds: int,
-        fold_list_env: str):
+        batch_size: int):
     """
     Trains a model using k-fold cross-validation, and performs evaluation on the left-out fold.
     At the end, an average model is created and evaluated on all folds.
 
     Args:
-        dataset_folder (str): The path to the folder containing the dataset.
+        strategy (tf.distribute.Strategy): The strategy for distributed training.
         model_folder (str): The path to the folder where the trained models will be saved.
-        model_name (str): The name of the model.
         model_config (dict): The configuration of the model.
         input_shape (tuple): The shape of the input data.
         chkpt_folder (str): The path to the folder where the model checkpoints will be saved.
         num_epochs (int): The number of epochs to train for.
         iterations_per_epoch (int): The number of iterations per epoch.
         batch_size (int): The batch size for training.
-        n_folds (int): The number of folds for cross-validation.
-        n_folds_to_run (int): The number of folds to actually run.
-        strategy (tf.distribute.Strategy): The strategy for distributed training.
 
     Returns:
         None
@@ -451,9 +399,7 @@ def train_k_folds(
     # Arguments sanity check
     failed_args = check_positive_integers(
         batch_size=batch_size,
-        num_epochs=num_epochs,
-        n_folds=n_folds
-    )
+        num_epochs=num_epochs)
     if iterations_per_epoch is not None and iterations_per_epoch <= 0:
         failed_args['iterations_per_epoch'] = iterations_per_epoch
     if failed_args:
@@ -461,11 +407,6 @@ def train_k_folds(
             f"{name}={value}({type(value)})" for name, value in failed_args.items())
         raise ValueError(
             f"The following arguments must be positive integers: {failed_msg}")
-    try:
-        fold_list = process_fold_list_env(fold_list_env, n_folds)
-    except Exception as e:
-        raise ValueError(
-            f"Error processing fold list: {fold_list_env}") from e
 
     # Dump hyperparameters and model configuration to json
     with open(f'{model_folder}/hyperparameters.json', 'w') as jfile:
@@ -478,189 +419,107 @@ def train_k_folds(
         f'\n\n========================================'
         f' Dataset Loading '
         f'=========================================')
-    ds_folds = []
+    datasets = {}
     sample_count = 0
-    for fold in range(1, n_folds + 1):
-        dataset = load_and_process_dataset(dataset_folder, fold, batch_size)
-        dataset_size = get_dataset_size(dataset, img_count=False)
-        LOGGER.info(f'Loaded fold {fold} with {dataset_size} samples')
-        sample_count += dataset_size
-        ds_folds.append(dataset)
-    LOGGER.info(f'Loaded {sample_count} samples in total')
-    img_count = sample_count * batch_size
-    LOGGER.info(
-        f'With a batch size of {batch_size}, this corresponds to {img_count} images')
-
-    # Prepare and log fold configurations
-    LOGGER.info(
-        f'\n\n======================================='
-        f' Fold Configurations '
-        f'======================================')
-    n_folds_to_run = len(fold_list)
-    fold_configurations = prepare_fold_configurations(n_folds)
-    models = []
-    fold_info_str = f"Running {n_folds_to_run} fold configurations out of the possible {n_folds}:"
-    fold_config_filtered = []
-    for i, fold_entry in enumerate(fold_configurations):
-        if i in fold_list:
-            fold_info_str += f'\nFOLD {i} : '
-            fold_entry = fold_configurations[i]
-            fold_info_str += json.dumps(fold_entry)
-            model_fold_path = os.path.join(
-                model_folder, f'fold_{i}_{model_name}')
-            os.makedirs(model_fold_path, exist_ok=True)
-            fold_entry['model_fold_path'] = model_fold_path
-            fold_config_filtered.append(fold_entry)
+    for fold in ["train", "val", "test"]:
+        if TRAINING_CONFIG['use_npz']:
+            dataset_path = os.path.join(NPZ_FOLDER, fold)
+            dataset = load_and_process_npz(dataset_path, batch_size, fold)
         else:
-            fold_info_str += f'\nFOLD {i} : SKIPPED'
-    LOGGER.info(f'{fold_info_str}')
+            dataset_path = os.path.join(DATASET_FOLDER, fold)
+            dataset = load_and_process_dataset(dataset_path, batch_size)
+        dataset_size = get_dataset_size(dataset, img_count=False)
+        LOGGER.info(f'Loaded fold {fold} with {dataset_size} samples,'
+                    f' or {dataset_size * batch_size} images')
+        sample_count += dataset_size
+        datasets[fold] = dataset
+    img_count = sample_count * batch_size
+    LOGGER.info(f'Loaded {sample_count} samples in total. With a batch '
+                f'size of {batch_size}, this corresponds to {img_count} images')
 
-    # Start training
-    for index, fold_entry in enumerate(fold_config_filtered):
+    # Dataset splitting
+    ds_train = datasets['train']
+    ds_val = datasets['val']
+    ds_test = datasets['test']
+
+    if iterations_per_epoch is not None:
+        # repeat dataset if iterations_per_epoch is set
+        ds_train = ds_train.repeat()
+
+    # Perform fitting using the strategy scope
+    with strategy.scope():
+        init_start = time.time()
+        model = initialise_model(
+            input_shape, model_config, chkpt_folder=chkpt_folder)
         LOGGER.info(
-            f'\n\n==========================================='
-            f' Fold {index + 1}/{n_folds_to_run} '
-            f'============================================')
-        # Set up training and validation datasets
-        fold_val = fold_entry['validation_fold']
-        folds_train = fold_entry['training_folds']
-        fold_test = fold_entry['testing_fold']
-        model_fold_path = fold_entry['model_fold_path']
+            f'\n========================================='
+            f' Model Summary '
+            f'==========================================')
+        model.net.summary()
+        model.net.count_params()
+        callbacks = initialise_callbacks(model_folder)
+        init_end = time.time()
+        init_duration = init_end - init_start
+        # Fit model
+        fitting_start_time = time.time()
+        try:
+            if iterations_per_epoch is not None:
+                # fit with steps_per_epoch as we repeat the dataset
+                model.net.fit(ds_train,
+                              validation_data=ds_val,
+                              epochs=num_epochs,
+                              steps_per_epoch=iterations_per_epoch,
+                              callbacks=callbacks)
+            else:
+                # fit without steps_per_epoch and iterate over the full dataset
+                model.net.fit(ds_train,
+                              validation_data=ds_val,
+                              epochs=num_epochs,
+                              callbacks=None)
+        except Exception as e:
+            raise Exception(f'Error during model fitting') from e
+        fitting_end_time = time.time()
+        fitting_duration = fitting_end_time - fitting_start_time
 
-        ds_folds_train = [ds_folds[tid] for tid in folds_train]
-        ds_train = reduce(tf.data.Dataset.concatenate, ds_folds_train)
-        ds_val = ds_folds[fold_val]
-
-        df_train_size = get_dataset_size(ds_train, img_count=True)
-        df_val_size = get_dataset_size(ds_val, img_count=True)
-        df_test_size = get_dataset_size(ds_folds[fold_test], img_count=True)
+        # Evaluate model on testing dataset
+        LOGGER.info(f'Evaluating model on testing dataset')
+        testing_start_time = time.time()
+        try:
+            evaluation = model.net.evaluate(ds_test)
+        except Exception as e:
+            raise Exception(f'Error during evaluation') from e
+        testing_end_time = time.time()
+        testing_duration = testing_end_time - testing_start_time
+        evaluation_dict = dict(zip(model.net.metrics_names, evaluation))
+        evaluation_path = os.path.join(model_folder, 'evaluation.json')
+        with open(evaluation_path, 'w') as jfile:
+            json.dump(evaluation_dict, jfile, indent=4)
         LOGGER.info(
-            f'\nTrain folds {folds_train}\n\tsize: {df_train_size} images \n'
-            f'Val fold: {fold_val}\n\tsize: {df_val_size} images \n'
-            f'Test fold: {fold_test}\n\tsize: {df_test_size} images')
+            f'\tEvaluation results saved to {model_folder}/evaluation.json')
 
-        if iterations_per_epoch is not None:
-            # repeat dataset if iterations_per_epoch is set
-            ds_train = ds_train.repeat()
-
-        # Perform fitting using the strategy scope
-        with strategy.scope():
-            init_start = time.time()
-            model = initialise_model(
-                input_shape, model_config, chkpt_folder=chkpt_folder)
-            LOGGER.info(
-                f'\n========================================='
-                f' Model Summary '
-                f'==========================================')
-            model.net.summary()
-            model.net.count_params()
-            callbacks = initialise_callbacks(model_fold_path)
-            init_end = time.time()
-            init_duration = init_end - init_start
-            # Fit model
-            fitting_start_time = time.time()
-            try:
-                if iterations_per_epoch is not None:
-                    # fit with steps_per_epoch as we repeat the dataset
-                    model.net.fit(ds_train,
-                                  validation_data=ds_val,
-                                  epochs=num_epochs,
-                                  steps_per_epoch=iterations_per_epoch,
-                                  callbacks=callbacks)
-                else:
-                    # fit without steps_per_epoch and iterate over the full dataset
-                    model.net.fit(ds_train,
-                                  validation_data=ds_val,
-                                  epochs=num_epochs,
-                                  callbacks=callbacks)
-            except Exception as e:
-                raise Exception(f'Error in fitting folds {folds_train}') from e
-            fitting_end_time = time.time()
-            fitting_duration = fitting_end_time - fitting_start_time
-
-            # Append model to model list
-            models.append(model)
-
-            # Evaluate model on left-out fold
-            LOGGER.info(f'Evaluating model on left-out fold {fold_test}')
-            testing_start_time = time.time()
-            try:
-                evaluation = model.net.evaluate(ds_folds[fold_test])
-            except Exception as e:
-                raise Exception(f'Error in evaluating fold {fold_test}') from e
-            testing_end_time = time.time()
-            testing_duration = testing_end_time - testing_start_time
-            evaluation_dict = dict(zip(model.net.metrics_names, evaluation))
-            evaluation_path = os.path.join(model_fold_path, 'evaluation.json')
-            with open(evaluation_path, 'w') as jfile:
-                json.dump(evaluation_dict, jfile, indent=4)
-            LOGGER.info(f'\tEvaluation results saved to {model_fold_path}')
-
-            # Registering fold configuration and training duration
-            fold_duration = init_duration + fitting_duration + testing_duration
-            model_size = callbacks[-1].model_size
-            LOGGER.info(f'\n'
-                        f'Fold {fold_test} completed in {fold_duration} seconds \n'
-                        f'Model init duration: {init_duration} seconds \n'
-                        f'Model fitting duration: {fitting_duration} seconds \n'
-                        f'Model testing duration: {testing_duration} seconds \n')
-            fold_infos = {
-                'testing_fold': fold_test,
-                'training_folds': folds_train,
-                'validation_fold': fold_val,
-                'model_size_gb': model_size,
-                'fold_duration': fold_duration,
-                'init_duration': init_duration,
-                'fitting_duration': fitting_duration,
-                'testing_duration': testing_duration
-            }
-            fold_data_path = os.path.join(model_fold_path, 'fold_infos.json')
-            with open(fold_data_path, 'w') as jfile:
-                json.dump(fold_infos, jfile, indent=4)
-        LOGGER.info(f'Fold {index} completed')
-    LOGGER.info(f'All {n_folds_to_run} folds completed')
-
-    # Creating average model
-
-    # for MultiWorker, only the chief worker creates the average model
-    if type(strategy) == tf.distribute.MultiWorkerMirroredStrategy:
-        if TF_CONFIG_DICT['task']['index'] != 0:
-            LOGGER.info(
-                'Only the chief worker creates the average model, skipping')
-            return
-
-    # If we are running only a single fold, no need to create an average model
-    if n_folds_to_run == 1:
-        LOGGER.info('Only one fold was run, no average model created')
-        return
-    else:
-        LOGGER.info('Creating average model')
-        blank_model = initialise_model(input_shape, model_config)
-        avg_model, avg_model_path = get_average_from_models(
-            blank_model, models, model_folder, model_name)
-
-        # Evaluate average model on all folds
-        for fold_entry in fold_configurations:
-            testing_id = fold_entry['testing_fold']
-            LOGGER.info(
-                f'Evaluating average model on left-out fold {testing_id}')
-            avg_evaluation = avg_model.net.evaluate(ds_folds[testing_id])
-            avg_evaluation_dict = dict(
-                zip(avg_model.net.metrics_names, avg_evaluation))
-            evaluation_path = os.path.join(
-                avg_model_path, 'evaluation_avg.json')
-            with open(evaluation_path, 'w') as jfile:
-                json.dump(avg_evaluation_dict, jfile, indent=4)
-                LOGGER.info(
-                    f'\tEvaluation results for average model saved to {evaluation_path}')
+        # Registering fold configuration and training duration
+        fold_duration = init_duration + fitting_duration + testing_duration
+        model_size = callbacks[-1].model_size
+        LOGGER.info(f'\n'
+                    f'Model init duration: {init_duration} seconds \n'
+                    f'Model fitting duration: {fitting_duration} seconds \n'
+                    f'Model testing duration: {testing_duration} seconds \n')
+        fold_infos = {
+            'model_size_gb': model_size,
+            'fold_duration': fold_duration,
+            'init_duration': init_duration,
+            'fitting_duration': fitting_duration,
+            'testing_duration': testing_duration
+        }
+        fold_data_path = os.path.join(model_folder, 'fold_infos.json')
+        with open(fold_data_path, 'w') as jfile:
+            json.dump(fold_infos, jfile, indent=4)
 
     # Save training duration
     train_full_end_time = time.time()
-    LOGGER.info(
-        f'Training all models and average model took '
-        f'{train_full_end_time - training_full_start_time} seconds')
-    with open(f'{model_folder}/duration_seconds.txt', 'w') as txtfile:
-        txtfile.write(str(train_full_end_time - training_full_start_time))
+    training_time_str = time.strftime(
+        "%H:%M:%S", time.gmtime(train_full_end_time - training_full_start_time))
+    LOGGER.info(f'Full training duration : {training_time_str}')
 
 
 if __name__ == '__main__':
@@ -678,9 +537,8 @@ if __name__ == '__main__':
     os.makedirs(model_folder, exist_ok=True)
     if TRAINING_CONFIG['iterations_per_epoch'] == -1:
         TRAINING_CONFIG['iterations_per_epoch'] = None
-    train_k_folds(
+    training_main(
         strategy=STRATEGY,
-        dataset_folder=DATASET_FOLDER,
         model_folder=model_folder,
         model_name=MODEL_NAME,
         model_config=MODEL_CONFIG,
@@ -688,8 +546,5 @@ if __name__ == '__main__':
         chkpt_folder=TRAINING_CONFIG['chkpt_folder'],
         num_epochs=TRAINING_CONFIG['num_epochs'],
         iterations_per_epoch=TRAINING_CONFIG['iterations_per_epoch'],
-        batch_size=TRAINING_CONFIG['batch_size'],
-        n_folds=TRAINING_CONFIG['n_folds'],
-        fold_list_env=TRAINING_CONFIG['fold_list'],
-    )
+        batch_size=TRAINING_CONFIG['batch_size'])
     LOGGER.info('Training completed')
