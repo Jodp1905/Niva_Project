@@ -1,8 +1,7 @@
 from eopatches_for_sampling import create_all_eopatches
 from patchlets_to_npz import patchlets_to_npz_files
-from repo.normalization import calculate_normalization_factors
-from repo.creation_patchlets import create_patchlets
 from create_datasets import create_datasets
+from data_split import main_download
 from os import getenv
 import logging
 import time
@@ -20,6 +19,7 @@ logging.basicConfig(
 LOGGER = logging.getLogger(__name__)
 
 NIVA_PROJECT_DATA_ROOT = getenv('NIVA_PROJECT_DATA_ROOT')
+DOWNLOAD_DATA = 0
 
 
 def main():
@@ -30,6 +30,12 @@ def main():
     durations = []
 
     try:
+        if DOWNLOAD_DATA:
+            start_time = time.time()
+            main_download()
+            end_time = time.time()
+            durations.append(('main_download', end_time - start_time))
+
         start_time = time.time()
         create_all_eopatches()
         end_time = time.time()
@@ -37,10 +43,6 @@ def main():
 
         # SKIPPED : Patchlets creation is incompatible with resunet-a 6d model training
         # because eopatches are already of size 256, the minimum size for the model
-        # start_time = time.time()
-        # create_patchlets()
-        # end_time = time.time()
-        # durations.append(('create_patchlets', end_time - start_time))
 
         start_time = time.time()
         patchlets_to_npz_files()
@@ -48,11 +50,6 @@ def main():
         durations.append(('patchlets_to_npz_files', end_time - start_time))
 
         # SKIPPED : Normalization has been simplified and this step is no longer required
-        # start_time = time.time()
-        # calculate_normalization_factors()
-        # end_time = time.time()
-        # durations.append(
-        #     ('calculate_normalization_factors', end_time - start_time))
 
         start_time = time.time()
         create_datasets()
