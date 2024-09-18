@@ -139,10 +139,7 @@ def random_train_set(data, country='SI', percentage=0.7, split='test'):
     return data
 
 
-if __name__ == "__main__":
-    if not NIVA_PROJECT_DATA_ROOT:
-        raise ValueError(
-            "NIVA_PROJECT_DATA_ROOT environment variable is not set")
+def main_download():
     main_time_start = time.time()
     # connection check
     try:
@@ -218,3 +215,10 @@ if __name__ == "__main__":
     main_time_str = time.strftime(
         "%H:%M:%S", time.gmtime(main_time_end - main_time_start))
     LOGGER.info(f"All splits downloaded in {main_time_str}")
+
+
+if __name__ == "__main__":
+    if not NIVA_PROJECT_DATA_ROOT:
+        raise ValueError(
+            "NIVA_PROJECT_DATA_ROOT environment variable is not set")
+    main_download()
