@@ -80,7 +80,7 @@ else:
 
 # Model related imports, have to be done after setting up the strategy
 from model import get_average_from_models, initialise_model
-from model import INPUT_SHAPE, MODEL_NAME, MODEL_CONFIG
+from model import INPUT_SHAPE, MODEL_CONFIG
 from create_datasets import get_dataset
 
 # autopep8: on
@@ -540,7 +540,6 @@ if __name__ == '__main__':
     training_main(
         strategy=STRATEGY,
         model_folder=model_folder,
-        model_name=MODEL_NAME,
         model_config=MODEL_CONFIG,
         input_shape=INPUT_SHAPE,
         chkpt_folder=TRAINING_CONFIG['chkpt_folder'],
