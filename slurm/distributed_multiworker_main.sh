@@ -10,10 +10,14 @@
 #SBATCH --cpus-per-task 32
 #SBATCH --exclusive
 
-LOG_DIR="/home/jrisse/niva/slurm_${SLURM_JOB_ID}_multiworker_${SLURM_JOB_NUM_NODES}nodes_logs"
+# Set the project directory
+PROJECT_DIR="${HOME}"
+
+# Set the slurm log directory
+LOG_DIR="${PROJECT_DIR}/niva/slurm_${SLURM_JOB_ID}_multiworker_${SLURM_JOB_NUM_NODES}nodes_logs"
 mkdir -p $LOG_DIR
 
-SLURM_SCRIPT_DIR="/home/jrisse/niva/Niva_Project/slurm"
+SLURM_SCRIPT_DIR="${PROJECT_DIR}/niva/Niva_Project/slurm"
 
 srun --output=$LOG_DIR/training_niva_distributed_%j_%N_%t.out \
     --error=$LOG_DIR/training_niva_distributed_%j_%N_%t.out \

@@ -10,21 +10,22 @@
 #SBATCH --cpus-per-task=32
 #SBATCH --exclusive
 
+PROJECT_DIR="${HOME}"
+
 # Path Parameters
-PYTHON_VENV_PATH="/home/jrisse/venv-niva"
-PYTHON_SCRIPT_DIR="/home/jrisse/niva/Niva_Project/scripts" # Has to be set for slurm jobs
-NSIGHT_PATH="/home/jrisse/software/Nsys_2024.5.1/target-linux-x64"
+PYTHON_VENV_PATH="${PROJECT_DIR}/venv-niva"
+PYTHON_SCRIPT_DIR="${PROJECT_DIR}/niva/Niva_Project/scripts" # Has to be set for slurm jobs
+NSIGHT_PATH="${PROJECT_DIR}/software/Nsys_2024.5.1/target-linux-x64"
 LUSTRE_LLITE_DIR="/mnt/lustre-stats/llite"
-export DARSHAN_LIBPATH="/home/jrisse/software/darshan-3.4.5/darshan-runtime/install/lib/libdarshan.so"
+export DARSHAN_LIBPATH="${PROJECT_DIR}/software/darshan-3.4.5/darshan-runtime/install/lib/libdarshan.so"
 
 # Tracing parameters
-ENABLE_TRACING=1
+ENABLE_TRACING=0
 TRACING_TOOL="darshan" # darshan or nsight
 
 # Training parameters
-export FOLD_LIST="0"
-export NUM_EPOCHS=1
-# export ITERATIONS_PER_EPOCH=20
+# export NUM_EPOCHS=1
+# export ITERATIONS_PER_EPOCH=10
 
 # Tracing tool choice are both cannot be used at the same time
 if [ "$ENABLE_TRACING" -eq 1 ]; then
@@ -119,7 +120,7 @@ ${NSIGHT_PATH}/nsys profile \
 --lustre-volumes=all,\
 --lustre-llite-dir="${LUSTRE_LLITE_DIR}" \
 --output="${NSIGHT_LOGS_DIR}/${run_name}" \
---python-sampling=true \
+--python-sampling=false \
 python3 \
 "${training_path}" \
 "${run_name}"
