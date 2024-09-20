@@ -176,10 +176,8 @@ def get_dataset(npz_folder: str, fold_type: str) -> tf.data.Dataset:
     dataset = tf.data.Dataset.from_tensor_slices(datasets)
 
     # Shuffle files and interleave multiple files in parallel
-    def no_op(x):
-        return x
     dataset = dataset.shuffle(buffer_size=SHUFFLE_BUFFER_SIZE)
-    dataset = dataset.interleave(no_op,
+    dataset = dataset.interleave(lambda x: x,
                                  cycle_length=INTERLEAVE_CYCLE_LENGTH,
                                  num_parallel_calls=tf.data.experimental.AUTOTUNE)
 

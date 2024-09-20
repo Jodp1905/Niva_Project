@@ -9,7 +9,6 @@ import psutil
 import time
 import pandas as pd
 from enum import Enum
-from functools import reduce
 from filter import LogFileFilter
 import json
 import socket
@@ -103,7 +102,7 @@ TRAINING_CONFIG = {
     # Enable data prefetching runtime optimization
     "prefetch_data": True,
     # Enable data sharding runtime optimization
-    "enable_data_sharding": False,
+    "enable_data_sharding": True,
     # Path to the folder containing model checkpoint
     "chkpt_folder": None,
 }
@@ -475,7 +474,7 @@ def training_main(
                 model.net.fit(ds_train,
                               validation_data=ds_val,
                               epochs=num_epochs,
-                              callbacks=None)
+                              callbacks=callbacks)
         except Exception as e:
             raise Exception(f'Error during model fitting') from e
         fitting_end_time = time.time()
