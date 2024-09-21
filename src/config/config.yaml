@@ -24,6 +24,9 @@ create_datasets:
   use_file_sharding: false
   num_shards: 35
 
+main_preprocessing:
+  download_data: false
+
 # MODEL
 model:
   model_name: "resunet-a"

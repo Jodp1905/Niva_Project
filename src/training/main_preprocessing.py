@@ -11,11 +11,13 @@ import sys
 # Import logger
 LOGGER = get_logger(__name__)
 
-# Paths parameters
-NIVA_PROJECT_DATA_ROOT = getenv('NIVA_PROJECT_DATA_ROOT')
+# Import config
+from config.config_loader import load_config  # noqa: E402
+CONFIG = load_config()
 
-# Dataset generation parameters
-DOWNLOAD_DATA = 0
+# Paths parameters
+NIVA_PROJECT_DATA_ROOT = CONFIG['niva_project_data_root']
+DOWNLOAD_DATA = CONFIG['main_preprocessing']['download_data']
 
 
 def main():
