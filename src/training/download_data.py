@@ -21,15 +21,19 @@ sys.path.append(src_path)
 from niva_utils.logger import get_logger  # noqa: E402
 LOGGER = get_logger(__name__)
 
-# Define paths
-# local
-NIVA_PROJECT_DATA_ROOT = os.getenv('NIVA_PROJECT_DATA_ROOT')
+# Import config
+from config.config_loader import load_config  # noqa: E402
+CONFIG = load_config()
+
+# Constants
+NIVA_PROJECT_DATA_ROOT = CONFIG['niva_project_data_root']
+AI4BOUNDARIES_URL = CONFIG['download_data']['ai4boundaries_url']
+AI4BOUNDARIES_SPLIT_FILE = CONFIG['download_data']['ai4boundaries_split_table']
+RATE_LIMIT = CONFIG['download_data']['dl_rate_limit']
+RETRY_LIMIT = CONFIG['download_data']['dl_retry_limit']
+
+# Inferred constants
 SENTINEL2_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/sentinel2/')
-# web
-AI4BOUNDARIES_URL = 'http://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/DRLL/AI4BOUNDARIES'
-AI4BOUNDARIES_SPLIT_FILE = 'ai4boundaries_ftp_urls_sentinel2_split.csv'
-RATE_LIMIT = 5  # requests per second
-RETRY_LIMIT = 3  # number of retries
 
 
 async def download_file(session: aiohttp.ClientSession,
@@ -203,6 +207,7 @@ def main_download():
         LOGGER.error(f"Error connecting to {AI4BOUNDARIES_URL}: {e}")
         exit(1)
 
+    # create directories
     split_filepath = os.path.join(SENTINEL2_DIR, AI4BOUNDARIES_SPLIT_FILE)
     os.makedirs(NIVA_PROJECT_DATA_ROOT, exist_ok=True)
     os.makedirs(SENTINEL2_DIR, exist_ok=True)
@@ -260,7 +265,7 @@ def main_download():
         os.makedirs(os.path.join(folder_save, "masks"), exist_ok=True)
         os.makedirs(os.path.join(folder_save, "images"), exist_ok=True)
 
-        fold_data = data[data['new_split'] == fold]
+        fold_data = data[data['new_split'] == fold].sample(frac=0.05)
         asyncio.run(download_images(fold_data, folder_save))
         time_end = time.time()
         dl_time_str = time.strftime(

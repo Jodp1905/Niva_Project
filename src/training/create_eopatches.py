@@ -2,7 +2,6 @@ from tqdm import tqdm
 import shutil
 import numpy as np
 import warnings
-import logging
 import fs.move  # required by eopatch.save even though it is not used directly
 import os
 import sys
@@ -28,11 +27,17 @@ LOGGER = get_logger(__name__)
 # Suppress DeprecationWarning
 warnings.filterwarnings("ignore")
 
-# Define paths
-NIVA_PROJECT_DATA_ROOT = os.getenv('NIVA_PROJECT_DATA_ROOT')
+# Load configuration
+from config.config_loader import load_config  # noqa: E402
+CONFIG = load_config()
+
+# Constants
+NIVA_PROJECT_DATA_ROOT = CONFIG['niva_project_data_root']
+
+# Inferred constants
 SENTINEL2_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/sentinel2/')
 EOPATCH_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/eopatches/')
-PROCESS_POOL_WORKERS = int(os.getenv('PROCESS_POOL_WORKERS', os.cpu_count()))
+PROCESS_POOL_WORKERS = os.cpu_count()
 
 
 def transform_timestamps(time_data: DataArray) -> list:

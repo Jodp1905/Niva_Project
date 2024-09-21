@@ -19,16 +19,19 @@ sys.path.append(src_path)
 from niva_utils.logger import get_logger  # noqa: E402
 LOGGER = get_logger(__name__)
 
-# Define paths
-NIVA_PROJECT_DATA_ROOT = os.getenv('NIVA_PROJECT_DATA_ROOT')
+# Load configuration
+from config.config_loader import load_config  # noqa: E402
+CONFIG = load_config()
+
+# Constants
+NIVA_PROJECT_DATA_ROOT = CONFIG['niva_project_data_root']
+NPZ_CHUNK_SIZE = CONFIG['create_npz']['npz_chunk_size']
+
+# Inferred constants
 EOPTACHES_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/eopatches/')
 NPZ_FILES_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/npz_files/')
 METADATA_PATH = Path(f'{NIVA_PROJECT_DATA_ROOT}/patchlets_dataframe.csv')
-
-# Parameters
-# Number of eopatches data concatenated in each .npz binary file
-NPZ_CHUNK_SIZE = int(os.getenv('NPZ_CHUNK_SIZE', 20))
-PROCESS_POOL_WORKERS = int(os.getenv('PROCESS_POOL_WORKERS', os.cpu_count()))
+PROCESS_POOL_WORKERS = os.cpu_count()
 
 
 def extract_npys(patchlet_path: str) -> Tuple:

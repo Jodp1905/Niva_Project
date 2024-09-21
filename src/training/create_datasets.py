@@ -19,25 +19,29 @@ sys.path.append(src_path)
 from niva_utils.logger import get_logger  # noqa: E402
 LOGGER = get_logger(__name__)
 
-# Paths parameters
-NIVA_PROJECT_DATA_ROOT = os.getenv('NIVA_PROJECT_DATA_ROOT')
+# Load configuration
+from config.config_loader import load_config  # noqa: E402
+CONFIG = load_config()
+
+# Constants
+NIVA_PROJECT_DATA_ROOT = CONFIG['niva_project_data_root']
+SHUFFLE_BUFFER_SIZE = CONFIG['create_datasets']['shuffle_buffer_size']
+INTERLEAVE_CYCLE_LENGTH = CONFIG['create_datasets']['interleave_cycle_length']
+ENABLE_AUGMENTATION = CONFIG['create_datasets']['enable_augmentation']
+USE_FILE_SHARDING = CONFIG['create_datasets']['use_file_sharding']
+NUM_SHARDS = CONFIG['create_datasets']['num_shards']
+
+# Inferred constants
 NPZ_FILES_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/npz_files/')
 DATASET_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/datasets/')
 METADATA_PATH = Path(f'{NIVA_PROJECT_DATA_ROOT}/patchlets_dataframe.csv')
+PROCESS_POOL_WORKERS = os.cpu_count()
 
-# Dataset generation parameters
+# Normalization and augmentation constants
 NORMALIZER = dict(to_medianstd=partial(normalize_meanstd, subtract='median'))
-ENABLE_AUGMENTATION = True
 AUGMENTATIONS_FEATURES = ["flip_left_right",
                           "flip_up_down", "rotate", "brightness"]
 AUGMENTATIONS_LABEL = ["flip_left_right", "flip_up_down", "rotate"]
-
-N_FOLDS = int(os.getenv('N_FOLDS', 10))
-PROCESS_POOL_WORKERS = int(os.getenv('PROCESS_POOL_WORKERS', os.cpu_count()))
-USE_FILE_SHARDING = False
-NUM_SHARDS = int(os.getenv('NUM_SHARDS', 35))
-SHUFFLE_BUFFER_SIZE = 2000
-INTERLEAVE_CYCLE_LENGTH = 10
 
 
 def describe_tf_dataset(dataset: str, dataset_name: str, message: str, num_batches=3):

@@ -1,0 +1,66 @@
+# Config file for the project
+
+# GENERAL
+niva_project_data_root: null
+process_pool_workers: 32
+
+# PREPROCESSING
+download_data:
+  ai4boundaries_url: "http://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/DRLL/AI4BOUNDARIES"
+  ai4boundaries_split_table: "ai4boundaries_ftp_urls_sentinel2_split.csv"
+  dl_rate_limit: 5
+  dl_retry_limit: 3
+
+create_eopatches:
+  # no modifiable parameters
+
+create_npz:
+  npz_chunk_size: 20
+
+create_datasets:
+  shuffle_buffer_size: 2000
+  interleave_cycle_length: 10
+  enable_augmentation: true
+  use_file_sharding: false
+  num_shards: 35
+
+# MODEL
+model:
+  model_name: "resunet-a"
+  input_shape: [256, 256, 4]
+  model_config:
+    learning_rate: 0.0001
+    n_layers: 3
+    n_classes: 2
+    keep_prob: 0.8
+    features_root: 32
+    conv_size: 3
+    conv_stride: 1
+    dilation_rate: [1, 3, 15, 31]
+    deconv_size: 2
+    add_dropout: true
+    add_batch_norm: false
+    use_bias: false
+    bias_init: 0.0
+    padding: "SAME"
+    pool_size: 3
+    pool_stride: 2
+    prediction_visualization: true
+    class_weights: null
+
+# TRAINING
+training:
+  num_epochs: 20
+  batch_size: 8
+  iterations_per_epoch: -1
+  training_type: "SingleWorker"
+  use_npz: false
+  tf_full_profiling: false
+  prefetch_data: true
+  enable_data_sharding: true
+  chkpt_folder: null
+  tensorboard_update_freq: "epoch"
+
+# INFERENCE
+inference:
+  # not done yet

@@ -16,31 +16,14 @@ sys.path.append(src_path)
 from niva_utils.logger import get_logger  # noqa: E402
 LOGGER = get_logger(__name__)
 
-# Constants
-INPUT_SHAPE = [256, 256, 4]
-MODEL_NAME = 'resunet-a'
+# Load configuration
+from config.config_loader import load_config  # noqa: E402
+CONFIG = load_config()
 
-# Model configuration (should not be changed)
-MODEL_CONFIG = {
-    "learning_rate": 0.0001,
-    "n_layers": 3,
-    "n_classes": 2,
-    "keep_prob": 0.8,
-    "features_root": 32,
-    "conv_size": 3,
-    "conv_stride": 1,
-    "dilation_rate": [1, 3, 15, 31],
-    "deconv_size": 2,
-    "add_dropout": True,
-    "add_batch_norm": False,
-    "use_bias": False,
-    "bias_init": 0.0,
-    "padding": "SAME",
-    "pool_size": 3,
-    "pool_stride": 2,
-    "prediction_visualization": True,
-    "class_weights": None
-}
+# Constants
+MODEL_NAME = CONFIG['model']['model_name']
+INPUT_SHAPE = CONFIG['model']['input_shape']
+MODEL_CONFIG = CONFIG['model']['model_config']
 
 
 @tf.function

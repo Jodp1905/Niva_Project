@@ -20,6 +20,29 @@ sys.path.append(src_path)
 from niva_utils.logger import get_logger  # noqa: E402
 LOGGER = get_logger(__name__)
 
+# Load configuration
+from config.config_loader import load_config  # noqa: E402
+CONFIG = load_config()
+
+# Constants
+NIVA_PROJECT_DATA_ROOT = CONFIG['niva_project_data_root']
+CONFIG_TRAINING = CONFIG['training']
+NUM_EPOCHS = CONFIG_TRAINING['num_epochs']
+BATCH_SIZE = CONFIG_TRAINING['batch_size']
+ITERATIONS_PER_EPOCH = CONFIG_TRAINING['iterations_per_epoch']
+TRAINING_TYPE = CONFIG_TRAINING['training_type']
+USE_NPZ = CONFIG_TRAINING['use_npz']
+TF_FULL_PROFILING = CONFIG_TRAINING['tf_full_profiling']
+PREFETCH_DATA = CONFIG_TRAINING['prefetch_data']
+ENABLE_DATA_SHARDING = CONFIG_TRAINING['enable_data_sharding']
+CHKPT_FOLDER = CONFIG_TRAINING['chkpt_folder']
+TENSORBOARD_UPDATE_FREQ = CONFIG_TRAINING['tensorboard_update_freq']
+
+# Inferred constants
+DATASET_FOLDER = Path(f'{NIVA_PROJECT_DATA_ROOT}/datasets/')
+MODEL_FOLDER = Path(f'{NIVA_PROJECT_DATA_ROOT}/models/')
+NPZ_FOLDER = Path(f'{NIVA_PROJECT_DATA_ROOT}/npz_files/')
+
 # Configure TensorFlow strategies at the earliest
 
 
@@ -30,10 +53,15 @@ class TrainingType(Enum):
     MultiWorker = 2
 
 
-TRAINING_TYPE_ENV = os.getenv('TRAINING_TYPE', TrainingType.SingleWorker.name)
+if TRAINING_TYPE not in TrainingType.__members__:
+    LOGGER.error(
+        f"Invalid training type: {TRAINING_TYPE}.\n"
+        f"Must be one of: {', '.join(TrainingType.__members__.keys())}")
+    exit(1)
+
 STRATEGY = None
 TF_CONFIG, TF_CONFIG_DICT = None, None
-if TRAINING_TYPE_ENV == TrainingType.SingleWorker.name:
+if TRAINING_TYPE == TrainingType.SingleWorker.name:
     LOGGER.info("SingleWorker selected, using MirroredStrategy")
     STRATEGY = tf.distribute.MirroredStrategy()
     num_workers = STRATEGY.num_replicas_in_sync
@@ -45,7 +73,7 @@ if TRAINING_TYPE_ENV == TrainingType.SingleWorker.name:
         f"========================================\n"
         f"MirroredStrategy selected with {num_workers} workers on {hostname}\n"
         f"Devices: {devices}")
-elif TRAINING_TYPE_ENV == TrainingType.MultiWorker.name:
+elif TRAINING_TYPE == TrainingType.MultiWorker.name:
     LOGGER.info("MultiWorker selected, using MultiWorkerMirroredStrategy")
     TF_CONFIG = os.getenv('TF_CONFIG')
     if TF_CONFIG is None:
@@ -66,48 +94,13 @@ elif TRAINING_TYPE_ENV == TrainingType.MultiWorker.name:
         f"Devices: {devices}\n"
         f"TF_CONFIG: {TF_CONFIG_DICT}")
 else:
-    LOGGER.error(
-        f"Invalid training type: {TRAINING_TYPE_ENV}.\n"
-        f"Must be one of: {', '.join(TrainingType.__members__.keys())}")
+    # Should never reach this point
     exit(1)
 
 # Model related imports, have to be done after setting up the strategy
 from model import initialise_model  # noqa: E402
 from model import INPUT_SHAPE, MODEL_CONFIG  # noqa: E402
 from create_datasets import get_dataset  # noqa: E402
-
-# Training hyperparameters
-TRAINING_CONFIG = {
-    # Number of full passes through the dataset
-    "num_epochs": int(os.getenv('NUM_EPOCHS', 20)),
-    # Number of samples processed per batch
-    "batch_size": int(os.getenv('BATCH_SIZE', 8)),
-    # Number of classes in the dataset (2 for binary labels)
-    "n_classes": 2,
-    # Number of batches processed per epoch, default to -1 (full dataset)
-    "iterations_per_epoch": int(os.getenv('ITERATIONS_PER_EPOCH', -1)),
-    # Use dataset or npz files
-    "use_npz": False,
-    # Enable detailed profiling/tracing with TensorBoard
-    # TODO : full_profiling eats all available memory, implement periodic flushing
-    "tf_full_profiling": False,
-    # Enable data prefetching runtime optimization
-    "prefetch_data": True,
-    # Enable data sharding runtime optimization
-    "enable_data_sharding": True,
-    # Path to the folder containing model checkpoint
-    "chkpt_folder": None,
-}
-
-# Timezone parameters
-UPDATE_FREQ = 'epoch'
-TIMEZONE = pytz.timezone('Europe/Paris')
-
-# Paths parameters
-NIVA_PROJECT_DATA_ROOT = os.getenv('NIVA_PROJECT_DATA_ROOT')
-DATASET_FOLDER = Path(f'{NIVA_PROJECT_DATA_ROOT}/datasets/')
-MODEL_FOLDER = Path(f'{NIVA_PROJECT_DATA_ROOT}/models/')
-NPZ_FOLDER = Path(f'{NIVA_PROJECT_DATA_ROOT}/npz_files/')
 
 
 class PerformanceLoggingCallback(tf.keras.callbacks.Callback):
@@ -250,7 +243,7 @@ def initialise_callbacks(model_path):
 
     tensorboard_callback = tf.keras.callbacks.TensorBoard(
         log_dir=logs_path,
-        update_freq=UPDATE_FREQ,
+        update_freq=TENSORBOARD_UPDATE_FREQ,
     )
 
     checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
@@ -297,10 +290,10 @@ def load_and_process_dataset(dataset_path, batch_size):
     # batch
     dataset = dataset.batch(batch_size)
     # shard
-    if TRAINING_CONFIG['enable_data_sharding']:
+    if ENABLE_DATA_SHARDING:
         dataset = set_auto_shard_policy(dataset)
     # prefetch
-    if TRAINING_CONFIG['prefetch_data']:
+    if PREFETCH_DATA:
         dataset = dataset.prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
     return dataset
 
@@ -321,10 +314,10 @@ def load_and_process_npz(dataset_path, batch_size, fold_type):
     # batch
     dataset = dataset.batch(batch_size)
     # shard
-    if TRAINING_CONFIG['enable_data_sharding']:
+    if ENABLE_DATA_SHARDING:
         dataset = set_auto_shard_policy(dataset)
     # prefetch
-    if TRAINING_CONFIG['prefetch_data']:
+    if PREFETCH_DATA:
         dataset = dataset.prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
     return dataset
 
@@ -348,7 +341,7 @@ def get_dataset_size(dataset: tf.data.Dataset,
     if img_count is False:
         return num_samples
     else:
-        batch_size_global = TRAINING_CONFIG['batch_size']
+        batch_size_global = BATCH_SIZE
         num_imgs = num_samples * batch_size_global
         return num_imgs
 
@@ -401,7 +394,7 @@ def training_main(
 
     # Dump hyperparameters and model configuration to json
     with open(f'{model_folder}/hyperparameters.json', 'w') as jfile:
-        json.dump(TRAINING_CONFIG, jfile, indent=4)
+        json.dump(CONFIG_TRAINING, jfile, indent=4)
     with open(f'{model_folder}/model_cfg.json', 'w') as jfile:
         json.dump(model_config, jfile, indent=4)
 
@@ -413,7 +406,7 @@ def training_main(
     datasets = {}
     sample_count = 0
     for fold in ["train", "val", "test"]:
-        if TRAINING_CONFIG['use_npz']:
+        if USE_NPZ:
             dataset_path = os.path.join(NPZ_FOLDER, fold)
             dataset = load_and_process_npz(dataset_path, batch_size, fold)
         else:
@@ -526,15 +519,15 @@ if __name__ == '__main__':
     # Set up model folder
     model_folder = os.path.join(MODEL_FOLDER, run_name)
     os.makedirs(model_folder, exist_ok=True)
-    if TRAINING_CONFIG['iterations_per_epoch'] == -1:
-        TRAINING_CONFIG['iterations_per_epoch'] = None
+    if ITERATIONS_PER_EPOCH == -1:
+        ITERATIONS_PER_EPOCH = None
     training_main(
         strategy=STRATEGY,
         model_folder=model_folder,
         model_config=MODEL_CONFIG,
         input_shape=INPUT_SHAPE,
-        chkpt_folder=TRAINING_CONFIG['chkpt_folder'],
-        num_epochs=TRAINING_CONFIG['num_epochs'],
-        iterations_per_epoch=TRAINING_CONFIG['iterations_per_epoch'],
-        batch_size=TRAINING_CONFIG['batch_size'])
+        chkpt_folder=CHKPT_FOLDER,
+        num_epochs=NUM_EPOCHS,
+        iterations_per_epoch=ITERATIONS_PER_EPOCH,
+        batch_size=BATCH_SIZE)
     LOGGER.info('Training completed')
