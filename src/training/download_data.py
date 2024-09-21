@@ -265,7 +265,7 @@ def main_download():
         os.makedirs(os.path.join(folder_save, "masks"), exist_ok=True)
         os.makedirs(os.path.join(folder_save, "images"), exist_ok=True)
 
-        fold_data = data[data['new_split'] == fold].sample(frac=0.05)
+        fold_data = data[data['new_split'] == fold]
         asyncio.run(download_images(fold_data, folder_save))
         time_end = time.time()
         dl_time_str = time.strftime(
