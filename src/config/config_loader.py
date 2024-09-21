@@ -1,6 +1,7 @@
 import os
 import yaml
 import sys
+from threading import Lock
 
 # Add the src directory to the path
 src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -12,6 +13,47 @@ LOGGER = get_logger(__name__)
 # Default configuration file
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 YAML_CONFIG_FILE = os.path.join(SCRIPT_DIR, 'config.yaml')
+
+
+class ConfigLoader:
+    _instance = None
+    _lock = Lock()
+
+    def __new__(cls):
+        """
+        Ensure that only one instance of ConfigLoader is created (singleton).
+        """
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = super(ConfigLoader, cls).__new__(cls)
+                cls._instance._config = None
+                cls._instance._load_config()
+            return cls._instance
+
+    def _load_config(self):
+        """
+        Load configuration from a YAML file or override with environment variables.
+        This is called only once during the lifetime of the singleton instance.
+        """
+        LOGGER.info("Loading configuration for the first time.")
+
+        # Load the YAML config
+        with open(YAML_CONFIG_FILE, 'r') as f:
+            self._config = yaml.safe_load(f)
+
+        # Override with environment variables
+        self._config = override_with_env(self._config)
+
+        # Validate niva_project_data_root
+        if self._config.get('niva_project_data_root') is None:
+            raise ValueError(
+                'niva_project_data_root is not set in the configuration file.')
+
+    def get_config(self):
+        """
+        Return the loaded configuration.
+        """
+        return self._config
 
 
 def parse_env_var(value, original_type):
@@ -50,7 +92,6 @@ def override_with_env(config):
     """
     for key, value in config.items():
         if isinstance(value, dict):
-            # Recursive call for nested dictionaries
             config[key] = override_with_env(value)
         else:
             env_key = key.upper()
@@ -62,29 +103,14 @@ def override_with_env(config):
                     LOGGER.warning(
                         f"Could not cast environment variable {env_key} to {type(value).__name__}"
                         f" for key {key}, defaulting to YAML value {value}")
-
     return config
 
 
 def load_config():
     """
-    Load configuration from a YAML file by default or from environment variables if set.
-    For more information about configurations with environment variables, see the ENVIRONMENT.md
-    file in the root of the project.
+    Loads the current configuration using the ConfigLoader class.
 
     Returns:
-        dict: A dictionary containing the processed configuration.
+        dict: The current configuration settings.
     """
-    with open(YAML_CONFIG_FILE, 'r') as f:
-        config = yaml.safe_load(f)
-
-    # Environment variable overrides
-    config = override_with_env(config)
-
-    # niva_project_data_root check
-    niva_project_data_root = config['niva_project_data_root']
-    if niva_project_data_root is None:
-        raise ValueError(
-            'niva_project_data_root is not set in the configuration file.')
-
-    return config
+    return ConfigLoader().get_config()
