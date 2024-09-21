@@ -3,22 +3,23 @@
 <div align="center">
   <h1 align="center">Niva Project</h1>
   <p align="center">
-    I/O Analysis of a deep learning pipeline for field delineation using the resunet-A model.
+    Field delineation using the Resunet-a model.
   </p>
 </div>
 
 # About The Project
 
-TODO
+This projects stems from the sentine-hub [field delineation project](https://github.com/sentinel-hub/field-delineation).
 
 # Getting Started
 
-This section will guide you on setting up the project and executing the full deep learning pipeline.  
+This section will guide you on setting up the project and executing the full deep learning training and inference pipeline
 
 ## Prerequisites
 
 ### Python
-This project uses python 3.10, that can be installed alongside other versions. It is strongly advised to use a virtual environment.
+This project uses python 3.10, that can be installed alongside other versions.
+It is strongly advised to use a virtual environment.
 
 * add python repository
   ```sh
@@ -50,8 +51,8 @@ The [geos library](https://github.com/libgeos/geos) is required by some python m
 
 ### The ai4boundaries dataset
 
-This project uses the ai4boundaries dataset as the source of the preprocessing pipeline.
-You can download the it using instructions from [this repository](https://github.com/waldnerf/ai4boundaries)
+This project uses the ai4boundaries dataset as the source for the training.
+Learn more about ai4boundaries on [this repository](https://github.com/waldnerf/ai4boundaries)
 
 ## Installation
 
@@ -62,14 +63,11 @@ git clone https://github.com/Jodp1905/Niva_Project.git
 
 ### 2. Set the environment variable NIVA_PROJECT_DATA_ROOT
 
-It should be set to the root of the ai4boundaries dataset, which should look like this :
+All data used for training as well as the trained models will be saved at the path indicated by NIVA_PROJECT_DATA_ROOT.
 
 ```
-ai4boundaries_dataset   <---   The path to this folder 
-├── orthophoto
-│   ├── images
-│   └── masks
-├── samples
+niva_project_data   <---   The path to this folder 
+│
 └── sentinel2
     ├── images
     └── masks
@@ -94,9 +92,8 @@ You can set up the environment using the **requirements.txt** file at the root o
 
 ## Usage
 
-This sections provides an overview on how you can quickly run the full field delineation training pipeline from end to end.
-
-For more details about the implementation and the many parameters you can tune, see the [detailed description](#detailed-description) section.
+This sections provides an overview on how you can get started and run the full field delineation training pipeline from end to end.
+For more details about the implementation and the parameters you can tune, see the [detailed description](#detailed-description) section.
 
 ### Preprocessing pipeline
 
@@ -106,8 +103,6 @@ Data preprocessing can be executed using the `main_preprocessing` python script 
 python3 main_preprocessing.py
 ```
 
-[This image](./data_preprocess_workflow.png) describes in detail the process of creating the tensorflow datasets that can be used for training from the initial ai4boundaries dataset.
-
 ### Training
 
 Once the datasets are created, you can run the model training using the `training.py` python script under /script with a training name of you choice :
@@ -116,14 +111,24 @@ Once the datasets are created, you can run the model training using the `trainin
 python3 training.py <training-name>
 ```
 
-### Post processing
-
 Once the training has been executed, use the training name and the `main_analyze` script under /utils to generate loss/accuracy plots as well as a textual description of hyperparameters, memory usage, model size, and more !
 
 ```sh
 python3 main_analyze.py
 ```
 
+### Inference
+
+TODO inference guide
+
 # Implementation details
 
-TBD
+## Data preprocessing implementation
+
+Preprocessing workflow diagram is available under /visuals :
+
+![Preprocessing Workflow](visuals/data_preprocess_workflow.png)
+
+## Training implementation
+
+TODO add training diagram

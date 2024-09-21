@@ -8,15 +8,8 @@
 # file in the root directory of this source tree.
 #
 
-import os
 from functools import partial
-
-from typing import List, Tuple, Callable, Union
-
-from fs_s3fs import S3FS
-
-import numpy as np
-import pandas as pd
+from typing import List, Tuple, Callable
 import tensorflow as tf
 
 
@@ -143,13 +136,22 @@ def contrast(x: tf.Tensor, contrast_lower: float = .9, contrast_upper=1.1) -> tf
 
 def augment_data(features_augmentations: List[str],
                  labels_augmentation: List[str],
-                 brightness_delta: float = 0.1, contrast_bounds: Tuple[float, float] = (0.9, 1.1)) -> Callable:
-    """ Builds a function that randomly augments features in specified ways.
+                 brightness_delta: float = 0.1,
+                 contrast_bounds: Tuple[float, float] = (0.9, 1.1)) -> Callable:
+    """
+    Creates a data augmentation function for features and labels.
 
-    param features_to_augment: List of features to augment and which operations to perform on them.
-                               Each element is of shape (feature, list_of_operations).
-    param brightness_delta: Maximum brightness change.
-    param contrast_bounds: Upper and lower bounds of contrast multiplier.
+    Args:
+        features_augmentations (List[str]): List of augmentation operations to apply to features.
+        labels_augmentation (List[str]): List of augmentation operations to apply to labels.
+        brightness_delta (float, optional): The maximum delta for brightness adjustment. 
+        Defaults to 0.1.
+        contrast_bounds (Tuple[float, float], optional): The lower and upper bounds 
+        for contrast adjustment. Defaults to (0.9, 1.1).
+
+    Returns:
+        Callable: A function that takes features and labels 
+        as input and returns augmented features and labels.
     """
     def _augment_data(data, op_fn):
         return op_fn(data)

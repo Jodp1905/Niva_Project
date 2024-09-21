@@ -1,18 +1,31 @@
+from tf_data_utils import normalize_meanstd, augment_data
+from tf_data_utils import Unpack, ToFloat32, FillNaN, OneMinusEncoding, LabelsToDict
+import shutil
+import sys
+from typing import List
+import numpy as np
 import os
 import logging
 from pathlib import Path
 import tensorflow as tf
 from tqdm.auto import tqdm
 from functools import partial
-import shutil
-from concurrent.futures import ProcessPoolExecutor, as_completed
-from tf_data_utils import normalize_meanstd, augment_data
-from tf_data_utils import Unpack, ToFloat32, FillNaN, OneMinusEncoding, LabelsToDict
-import numpy as np
-from typing import List
+
+# Add the src directory to the path
+src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(src_path)
+
+from niva_utils.logger import LogFileFilter  # noqa: E402
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+stdout_handler = logging.StreamHandler(sys.stdout)
+stdout_handler.addFilter(LogFileFilter())
+handlers = [stdout_handler]
+logging.basicConfig(
+    level=logging.INFO,
+    format="[%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s",
+    handlers=handlers
+)
 LOGGER = logging.getLogger(__name__)
 
 # Paths parameters
@@ -36,7 +49,7 @@ SHUFFLE_BUFFER_SIZE = 2000
 INTERLEAVE_CYCLE_LENGTH = 10
 
 
-def describe_tf_dataset(dataset, dataset_name, message, num_batches=3):
+def describe_tf_dataset(dataset: str, dataset_name: str, message: str, num_batches=3):
     """
     Describes a TensorFlow dataset.
 
@@ -57,7 +70,7 @@ def describe_tf_dataset(dataset, dataset_name, message, num_batches=3):
         LOGGER.debug(f"Number of elements (length): {length}")
     except:
         LOGGER.debug(
-            "Number of elements (length): Unable to determine (infinite or dynamically generated dataset)")
+            "Number of elements (length): Unable to determine, dataset is not iterable")
     LOGGER.debug(f"Taking a look at the first {num_batches} batches:")
     for i, batch in enumerate(dataset.take(num_batches)):
         LOGGER.debug(f"\nBatch {i+1} summary:")
@@ -119,7 +132,9 @@ def npz_file_lazy_dataset(file_path: str,
         np_arrays = [data[f] for f in fields]
         # Check that arrays match in the first dimension
         n_samples = np_arrays[0].shape[0]
-        assert all(n_samples == arr.shape[0] for arr in np_arrays)
+        if not all(arr.shape[0] == n_samples for arr in np_arrays):
+            raise AssertionError(
+                "Arrays in the .npz file do not have matching first dimensions")
         # Yield each sample (slice) as a tuple from the arrays
         for slices in zip(*np_arrays):
             yield slices
@@ -145,6 +160,17 @@ def npz_file_lazy_dataset(file_path: str,
 def get_dataset(npz_folder: str, fold_type: str) -> tf.data.Dataset:
     """
     Retrieves a TensorFlow dataset from a folder containing npz files.
+
+    Shuffles and interleaves the files, and applies a set of operations to the dataset elements :
+    - Normalization
+    - Unpack and float32 conversion
+    - Augmentation
+    - Fill NaN values
+    - One minus encoding
+    - Labels to dictionary
+
+    The returned dataset is lazily loaded from the npz files, so operations will
+    be applied on-the-fly when the dataset is consumed.
 
     Args:
         npz_folder (str): The path to the folder containing npz files.
@@ -213,6 +239,14 @@ def shard_func(element, index):
 
 
 def create_datasets():
+    """
+    Creates datasets for training, validation, and testing by processing NPZ files.
+
+    This function iterates over the fold types ("train", "val", "test"), creates the
+    corresponding dataset, and saves it to the DATASET_DIR directory.
+    Optionally, the dataset can be saved using file sharding.
+
+    """
     for fold_type in ["train", "val", "test"]:
         npz_folder = NPZ_FILES_DIR / fold_type
         dataset_folder = DATASET_DIR / fold_type

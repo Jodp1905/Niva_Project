@@ -1,4 +1,4 @@
-# autopep8: off
+import tensorflow as tf
 import os
 import json
 import logging
@@ -9,10 +9,15 @@ import psutil
 import time
 import pandas as pd
 from enum import Enum
-from filter import LogFileFilter
 import json
 import socket
-import tensorflow as tf
+
+# Add the src directory to the path
+src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(src_path)
+
+# local imports
+from niva_utils.logger import LogFileFilter  # noqa: E402
 
 # Configure logging
 stdout_handler = logging.StreamHandler(sys.stdout)
@@ -78,11 +83,9 @@ else:
     exit(1)
 
 # Model related imports, have to be done after setting up the strategy
-from model import get_average_from_models, initialise_model
-from model import INPUT_SHAPE, MODEL_CONFIG
-from create_datasets import get_dataset
-
-# autopep8: on
+from model import initialise_model  # noqa: E402
+from model import INPUT_SHAPE, MODEL_CONFIG  # noqa: E402
+from create_datasets import get_dataset  # noqa: E402
 
 # Training hyperparameters
 TRAINING_CONFIG = {

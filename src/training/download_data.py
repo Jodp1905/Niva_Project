@@ -1,25 +1,32 @@
-import pandas as pd
-import numpy as np
 import os
-import aiohttp
-import aiofiles
-import asyncio
-from tqdm.asyncio import tqdm
-from pathlib import Path
-import logging
-from filter import LogFileFilter
-import sys
-import urllib.error
-import urllib.request
-import shutil
 import time
+import shutil
+import urllib.request
+import urllib.error
+import logging
+from pathlib import Path
+from tqdm.asyncio import tqdm
+import asyncio
+import aiofiles
+import aiohttp
+import numpy as np
+import pandas as pd
+import sys
+
+# Add the src directory to the path
+src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(src_path)
+
+from niva_utils.logger import LogFileFilter  # noqa: E402
 
 # Configure logging
 stdout_handler = logging.StreamHandler(sys.stdout)
 stdout_handler.addFilter(LogFileFilter())
 handlers = [stdout_handler]
 logging.basicConfig(
-    level=logging.INFO, format="[%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s", handlers=handlers
+    level=logging.INFO,
+    format="[%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s",
+    handlers=handlers
 )
 LOGGER = logging.getLogger(__name__)
 
@@ -34,13 +41,19 @@ RATE_LIMIT = 5  # requests per second
 RETRY_LIMIT = 3  # number of retries
 
 
-async def download_file(session, url, dst_path):
+async def download_file(session: aiohttp.ClientSession,
+                        url: str,
+                        dst_path: str):
     """
-    Asynchronously download a single file to disk.
+    Downloads a file from the given URL and saves it to the specified destination path.
 
-    :param session: aiohttp ClientSession
-    :param url: URL of the file to download
-    :param dst_path: File location on disk after download
+    Args:
+        session (aiohttp.ClientSession): The aiohttp session to use for making the HTTP request.
+        url (str): The URL of the file to download.
+        dst_path (str): The destination file path where the downloaded file will be saved.
+
+    Raises:
+        Exception: If an error occurs during the download process, it will be logged.
     """
     try:
         async with session.get(url) as response:
@@ -53,13 +66,23 @@ async def download_file(session, url, dst_path):
         LOGGER.error(f"Exception occurred during download {url}: {e}")
 
 
-async def help_func(session, data, path):
+async def help_func(session: aiohttp.ClientSession,
+                    data: list[str],
+                    path: str):
     """
-    Asynchronous file download helper function.
+    Asynchronously downloads files from given URLs and saves them to the specified path.
 
-    :param session: aiohttp ClientSession
-    :param data: List of URLs to download
-    :param path: Destination directory
+    Args:
+        session (aiohttp.ClientSession): The aiohttp session to be used for downloading files.
+        data (list[str]): A list of URLs to download.
+        path (str): The directory path where the downloaded files will be saved.
+
+    Returns:
+        list: A list of URLs that failed to download.
+
+    Raises:
+        Exception: If there is an error during the download process, 
+        it logs the error and appends the URL to the fail_fns list.
     """
     fail_fns = []
     for url_fn in tqdm(data):
@@ -73,12 +96,25 @@ async def help_func(session, data, path):
     return fail_fns
 
 
-async def download_images(fold_data, folder_save):
+async def download_images(fold_data: pd.DataFrame,
+                          folder_save: str):
     """
-    Asynchronously download images and masks from the dataset.
+    Asynchronously downloads Sentinel-2 images and masks 
+    from provided URLs and saves them to specified folders.
 
-    :param fold_data: DataFrame with file URLs
-    :param folder_save: Destination folder for downloads
+    Args:
+        fold_data (pd.DataFrame): DataFrame containing URLs for Sentinel-2 images and masks.
+        folder_save (str): Path to the folder where images and masks will be saved.
+
+    Returns:
+        None
+
+    Logs:
+        Logs the number of successfully downloaded files and any failed downloads.
+        Retries failed downloads up to a specified retry limit.
+
+    Raises:
+        Any exceptions raised by aiohttp.ClientSession or the help_func will propagate up.
     """
     async with aiohttp.ClientSession() as session:
         num_files = len(fold_data)
@@ -128,9 +164,19 @@ async def download_images(fold_data, folder_save):
             )
 
 
-def random_train_set(data, country='SI', percentage=0.7, split='test'):
-    """"
-    Enrich training set by randomly setting validation/testing to training set
+def random_train_set(data: pd.DataFrame, country='SI', percentage=0.7, split='test'):
+    """
+    Randomly assigns a subset of the data to the training set.
+
+    Parameters:
+    data (pd.DataFrame): The input DataFrame containing the data.
+    country (str, optional): The country to filter the data by. Default is 'SI' (Slovenia).
+    percentage (float, optional): Percentage of the filtered data assigned to the training set. 
+    Default is 0.7.
+    split (str, optional): The current split label to filter the data by. Default is 'test'.
+
+    Returns:
+    pd.DataFrame: The DataFrame with the updated split labels under the 'new_split' column.
     """
     sub_data = data[(data['Country'] == country) & (data['split'] == split)]
     size_ = int(len(sub_data) * percentage)
@@ -140,6 +186,24 @@ def random_train_set(data, country='SI', percentage=0.7, split='test'):
 
 
 def main_download():
+    """
+    Main function to download and preprocess Sentinel-2 data from the AI4Boundaries dataset.
+
+    This function performs the following steps:
+    1. Checks the connection to the AI4Boundaries URL.
+    2. Creates necessary directories for storing data.
+    3. Downloads the split file from the AI4Boundaries dataset.
+    4. Reads and processes the split file to categorize 
+       data into training, validation, and test sets.
+    5. Adjusts the splits by moving certain countries' data between splits.
+    6. Saves the updated split file.
+    7. Downloads images and masks for each split (train, val, test) 
+       and saves them to respective directories.
+
+    Raises:
+        urllib.error.URLError: If there is an error connecting 
+        to the AI4Boundaries URL or downloading the split file.
+    """
     main_time_start = time.time()
     # connection check
     try:
@@ -185,6 +249,7 @@ def main_download():
                 dropna=False)[['file_id']].count())
     LOGGER.info(data.groupby(["new_split"], dropna=False)[['file_id']].count())
     """
+    Split should look like this:
     test          2164
     train         5236
     val            431

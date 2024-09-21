@@ -1,3 +1,4 @@
+import random
 import os
 import logging
 import sys
@@ -9,9 +10,12 @@ from eolearn.core import EOPatch
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm import tqdm
 import shutil
-import random
 
-from filter import LogFileFilter
+# Add the src directory to the path
+src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(src_path)
+
+from niva_utils.logger import LogFileFilter  # noqa: E402
 
 # Configure logging
 stdout_handler = logging.StreamHandler(sys.stdout)
@@ -139,9 +143,12 @@ def save_chunk(npys_dict: Tuple[np.ndarray, np.ndarray, np.ndarray,
                output_folder: str) -> None:
     """
     Save the chunk data as numpy arrays and update the metadata file.
+    Timestamps and eopatches paths are not saved in the numpy arrays.
+    They are saved in the metadata dataframe.
 
     Args:
-        npys_dict (Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]):
+        npys_dict (Tuple[np.ndarray, np.ndarray, np.ndarray, 
+                         np.ndarray, np.ndarray, np.ndarray]):
             A tuple containing the numpy arrays to be saved.
             The elements of the tuple are:
                 - X: Input data array
@@ -173,22 +180,20 @@ def save_chunk(npys_dict: Tuple[np.ndarray, np.ndarray, np.ndarray,
     return df
 
 
-def patchlets_to_npz_files():
+def eopatches_to_npz_files():
     """
-    Convert patchlets to NPZ files.
+    Processes EO patches and saves them as NPZ files.
 
-    This function converts a list of patchlets to NPZ files. It performs the following steps:
-    1. Retrieves the paths of all patchlets in the PATCHLETS_DIR directory.
-    2. Cleans the output directory.
-    3. Divides the patchlet paths into chunks of size NPZ_CHUNK_SIZE.
-    4. Processes each chunk in parallel using a ProcessPoolExecutor.
-    5. Concatenates the resulting dataframes and saves them as a CSV file.
+    This function performs the following steps:
+    1. Creates the NPZ files directory if it doesn't exist.
+    2. Iterates over the "train", "val", and "test" folds.
+    3. Cleans the output directory for each fold.
+    4. Computes chunks of EO patches based on a predefined chunk size.
+    5. Processes and saves each chunk in parallel.
+    6. Create a master DataFrame containing metadata on the origin of each npz file entry.
 
-    Parameters:
-    None
-
-    Returns:
-    None
+    Raises:
+        ValueError: If the number of entries does not match the expected number of EO patches.
     """
     NPZ_FILES_DIR.mkdir(parents=True, exist_ok=True)
     df_master_list = []
@@ -211,7 +216,6 @@ def patchlets_to_npz_files():
         lost = len(eopatches_paths) % NPZ_CHUNK_SIZE
         chunks = [eopatches_paths[i:i + NPZ_CHUNK_SIZE]
                   for i in range(0, len(eopatches_paths) - lost, NPZ_CHUNK_SIZE)]
-        assert len(chunks) == nb_chunks
 
         LOGGER.info(
             f'Processing {len(eopatches_paths)} patchlets in {nb_chunks} chunks '
@@ -225,7 +229,9 @@ def patchlets_to_npz_files():
                 future = executor.submit(
                     process_chunk, chunk, chunk_index, npz_dir)
                 futures.append(future)
-            for future in tqdm(as_completed(futures), total=len(futures), desc="Processing chunks"):
+            for future in tqdm(as_completed(futures),
+                               total=len(futures),
+                               desc="Processing chunks"):
                 try:
                     df = future.result()
                     df_list.append(df)
@@ -240,7 +246,10 @@ def patchlets_to_npz_files():
     master_df = pd.concat(df_master_list).reset_index(drop=True)
     num_eopatches = len(master_df['patchlet'].unique())
     num_entries = len(master_df)
-    assert num_entries == num_eopatches * 6  # 6 time samples for each eopatch
+    if num_entries != num_eopatches * 6:
+        raise ValueError(
+            f'Number of entries {num_entries} does not match the expected number '
+            f'of eopatches {num_eopatches} * 6 = {num_eopatches * 6}')
     LOGGER.info(
         f'Finished processing all {num_eopatches} eopatches, flattened by time '
         f'to {num_entries} entries')
@@ -252,4 +261,4 @@ if __name__ == '__main__':
     if NIVA_PROJECT_DATA_ROOT is None:
         raise ValueError(
             "NIVA_PROJECT_DATA_ROOT environment variable should be set.")
-    patchlets_to_npz_files()
+    eopatches_to_npz_files()

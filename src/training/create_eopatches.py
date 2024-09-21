@@ -1,6 +1,9 @@
+from tqdm import tqdm
+import shutil
+import numpy as np
 import warnings
 import logging
-import fs.move  # required by eopatch.save
+import fs.move  # required by eopatch.save even though it is not used directly
 import os
 import sys
 from datetime import datetime, timezone
@@ -9,23 +12,25 @@ from eolearn.core import EOPatch, FeatureType, OverwritePermission
 from numpy import datetime_as_string, newaxis, concatenate
 from sentinelhub.geometry import BBox
 from sentinelhub.geometry import CRS
-from dateutil.tz import tzlocal
 from rasterio import open as rasterio_open, DatasetReader
 from rasterio.coords import BoundingBox
 from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from tqdm import tqdm
-import numpy as np
-import shutil
 
-from filter import LogFileFilter
+# Add the src directory to the path
+src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(src_path)
+
+from niva_utils.logger import LogFileFilter  # noqa: E402
 
 # Configure logging
 stdout_handler = logging.StreamHandler(sys.stdout)
 stdout_handler.addFilter(LogFileFilter())
 handlers = [stdout_handler]
 logging.basicConfig(
-    level=logging.INFO, format="[%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s", handlers=handlers
+    level=logging.INFO,
+    format="[%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s",
+    handlers=handlers
 )
 LOGGER = logging.getLogger(__name__)
 
@@ -193,6 +198,9 @@ def create_all_eopatches() -> None:
     This function creates EOPatches by iterating over pairs of NetCDF and mask files.
     It ensures that the number of NetCDF files and mask files are equal, and that their IDs match.
 
+    Raises:
+        ValueError: If the number of NetCDF files and mask files do not match,
+            or if their IDs do not match.
     Returns:
         None
     """
@@ -204,27 +212,33 @@ def create_all_eopatches() -> None:
                 f"Detected existing EOPatch directory: {eopatch_dir}, cleaning up")
             shutil.rmtree(eopatch_dir)
 
-        # detecting netcdf image files
+        # detect netcdf image files
         eopatch_dir.mkdir(parents=True, exist_ok=True)
         nc_dir = SENTINEL2_DIR / fold / 'images'
         nc_files = sorted([nc_path.absolute() for nc_path in nc_dir.iterdir()
                            if nc_path.is_file()])
-        # detecting tiff mask files
+        # detect tiff mask files
         mask_dir = SENTINEL2_DIR / fold / 'masks'
         mask_files = sorted([mask_path.absolute() for mask_path in mask_dir.iterdir()
                             if mask_path.is_file()])
 
-        # asserting correctness of file pairs
-        assert (len(nc_files) == len(mask_files))
+        # assert correctness of file pairs
+        if len(nc_files) != len(mask_files):
+            raise ValueError(
+                f"Number of NetCDF files ({len(nc_files)}) "
+                f"and mask files ({len(mask_files)}) do not match")
         file_tuples = list(zip(nc_files, mask_files))
         for nc_file, mask_file in file_tuples:
             nc_id = "_".join(nc_file.stem.split('_')[:2])
             mask_id = "_".join(mask_file.stem.split('_')[:2])
-            assert (nc_id == mask_id)
+            if nc_id != mask_id:
+                raise ValueError(
+                    f"NetCDF file ID ({nc_id}) does not match mask file ID ({mask_id})")
 
         LOGGER.info(
             f'Creating EOPatches from {len(file_tuples)} pairs '
             f'of NetCDF and mask files for {fold} fold in {eopatch_dir}')
+        # Create EOPatches in parallel
         with ProcessPoolExecutor(max_workers=PROCESS_POOL_WORKERS) as executor:
             futures = []
             with tqdm(total=len(file_tuples), desc="Creating eopatches") as pbar:

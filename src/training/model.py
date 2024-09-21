@@ -1,14 +1,18 @@
+from eoflow.models.segmentation_unets import ResUnetA
+import argparse
 import logging
-from filter import LogFileFilter
 import sys
 import os
 import numpy as np
 import tensorflow as tf
 from eoflow.models.segmentation_base import segmentation_metrics
-from eoflow.models.metrics import MCCMetric, MeanIoU
 from eoflow.models.losses import TanimotoDistanceLoss
-from eoflow.models.segmentation_unets import ResUnetA
-import argparse
+
+# Add the src directory to the path
+src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(src_path)
+
+from niva_utils.logger import LogFileFilter  # noqa: E402
 
 # Configure logging
 stdout_handler = logging.StreamHandler(sys.stdout)
