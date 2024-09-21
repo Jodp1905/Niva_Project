@@ -15,18 +15,9 @@ from functools import partial
 src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(src_path)
 
-from niva_utils.logger import LogFileFilter  # noqa: E402
-
-# Configure logging
-stdout_handler = logging.StreamHandler(sys.stdout)
-stdout_handler.addFilter(LogFileFilter())
-handlers = [stdout_handler]
-logging.basicConfig(
-    level=logging.INFO,
-    format="[%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s",
-    handlers=handlers
-)
-LOGGER = logging.getLogger(__name__)
+# Import logger
+from niva_utils.logger import get_logger  # noqa: E402
+LOGGER = get_logger(__name__)
 
 # Paths parameters
 NIVA_PROJECT_DATA_ROOT = os.getenv('NIVA_PROJECT_DATA_ROOT')
