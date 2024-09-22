@@ -1,134 +1,223 @@
-<br />
+# Niva Project
 
-<div align="center">
-  <h1 align="center">Niva Project</h1>
-  <p align="center">
-    Field delineation using the Resunet-a model.
-  </p>
-</div>
+Field delineation using the Resunet-a model.
 
-# About The Project
+## About The Project
 
 This projects stems from the sentine-hub [field delineation project](https://github.com/sentinel-hub/field-delineation).
 
-# Getting Started
+## Getting Started
 
 This section will guide you on setting up the project and executing the full deep learning training and inference pipeline
 
-## Prerequisites
+### Prerequisites
 
-### Python
+#### Python
+
 This project uses python 3.10, that can be installed alongside other versions.
-It is strongly advised to use a virtual environment.
 
-* add python repository
+* Add python repository
+
   ```sh
   sudo add-apt-repository ppa:deadsnakes/ppa
   sudo apt update
   ```
 
-* install python 3.10
+* Install python 3.10
+
   ```sh
   sudo apt install python3.10 python3.10-venv python3.10-dev
   python3.10 --version
   ```
 
-* create and activate virtual environment
+You may also want to install it from source by downloading the tarball from
+[the official python website](https://www.python.org/downloads/release/python-31015/),
+extracting it and following instructions.
+
+#### GEOS
+
+The [geos library](https://github.com/libgeos/geos) is required by python modules used.
+
+* Install with apt
+
+  ```sh
+  sudo apt update
+  sudo apt-get install libgeos-dev
+  ```
+
+* to install from source, see <https://github.com/libgeos/geos/blob/main/INSTALL.md>
+
+### Installation
+
+#### 1. Clone the repository
+
+```sh
+git clone https://github.com/Jodp1905/Niva_Project.git
+```
+
+#### 2. Configure the project
+
+You can modify some parameters used in the project in the `config.yaml` file under `/config`.
+
+YAML config file values can also be overriden by environment variables if set,
+see `ENV_CONFIG.md` under `/config` for a description of all parameters.
+
+Upon downloading the project, all parameters will first be set to their default values.
+
+⚠️ Warning: **niva_project_data_root** must be set for any part of the project to run.
+All data used for training, the trained models, and the inference results will be written
+in this directory.
+
+Set it in the yaml file where it is null by default, or export it as an environment variable:
+
+```sh
+mkdir /path/to/project_data/
+export NIVA_PROJECT_DATA_ROOT=/path/to/project_data/
+```
+
+You may also add the line to your ~/.bashrc file for convenience.
+
+#### 3. Install required python packages
+
+You can download the necessary python packages by using the **requirements.txt** file at
+the root of the project. The use of a virtual environment is advised:
+
+* Create and activate virtual environment
+
   ```sh
   python3.10 -m venv /path/to/niva-venv
   source /path/to/niva-venv/bin/activate
   ```
 
-### GEOS
-The [geos library](https://github.com/libgeos/geos) is required by some python modules used.
+* Install from requirements.txt in the venv
 
-* install with apt
-  ```sh
-  sudo apt update
-  sudo apt-get install libgeos-dev
-  ```
-* to install from source, see https://github.com/libgeos/geos/blob/main/INSTALL.md
-
-### The ai4boundaries dataset
-
-This project uses the ai4boundaries dataset as the source for the training.
-Learn more about ai4boundaries on [this repository](https://github.com/waldnerf/ai4boundaries)
-
-## Installation
-
-### 1. Clone the repository
-```sh
-git clone https://github.com/Jodp1905/Niva_Project.git
-```
-
-### 2. Set the environment variable NIVA_PROJECT_DATA_ROOT
-
-All data used for training as well as the trained models will be saved at the path indicated by NIVA_PROJECT_DATA_ROOT.
-
-```
-niva_project_data   <---   The path to this folder 
-│
-└── sentinel2
-    ├── images
-    └── masks
-```
-
-Export it using :
-
-```sh
-export NIVA_PROJECT_DATA_ROOT=/path/to/ai4boundaries_dataset
-```
-
-You may also add the line to your ~/.bashrc file for convenience.
-
-### 3. Install the python environment
-
-You can set up the environment using the **requirements.txt** file at the root of the project.
-
-* with your venv activated
   ```sh
   pip install -r requirements.txt
   ```
 
-## Usage
+### Usage
 
-This sections provides an overview on how you can get started and run the full field delineation training pipeline from end to end.
-For more details about the implementation and the parameters you can tune, see the [detailed description](#detailed-description) section.
+This sections provides an overview on how you can get started and run the full field
+delineation training pipeline from end to end. Bash scripts are made available under `/scripts`
+to facilitate executions, but you may also use the python scripts under `/src` directly.
 
-### Preprocessing pipeline
+#### 1. Download dataset
 
-Data preprocessing can be executed using the `main_preprocessing` python script under /scripts :
+To download the ai4boundaries dataset from the Joint Research Centre Data Catalogue
+ftp servers, use the `download_dataset.sh` script:
 
 ```sh
-python3 main_preprocessing.py
+cd ./scripts
+./download_dataset.sh
 ```
 
-### Training
+Data is downloaded at the location specified by **niva_project_data_root** under `/sentinel2`
+and split into 3 folders corresponding to the training configurations:
+**training/validation/testing**. Requires an internet connection.
 
-Once the datasets are created, you can run the model training using the `training.py` python script under /script with a training name of you choice :
+You should have this structure after download :
+
+```txt
+niva_project_data_root
+└── sentinel2
+    ├── ai4boundaries_ftp_urls_sentinel2_split.csv
+    ├── test
+    │   ├── images        # 2164 files
+    │   └── masks         # 2164 files
+    ├── train
+    │   ├── images        # 5236 files
+    │   └── masks         # 5236 files
+    └── val
+        ├── images        # 431 files
+        └── masks         # 432 files
+```
+
+#### 2. Preprocessing pipeline
+
+The downloaded dataset can now be preprocessed using the `run_preprocessing.sh` script:
 
 ```sh
+cd ./scripts
+./run_preprocessing.sh
+```
+
+The preprocessing pipeline create multiple folders under **niva_project_data_root**
+corresponding to its different executed steps while keeping the test/train/val structure :
+
+```txt
+niva_project_data_root
+├── datasets
+│   ├── test
+│   ├── train
+│   └── val
+├── eopatches
+│   ├── test
+│   ├── train
+│   └── val
+├── npz_files
+│   ├── test
+│   ├── train
+│   └── val
+├── patchlets_dataframe.csv
+└── sentinel2
+```
+
+#### 3. Training
+
+Once the datasets are created, you can run the model training using the `training.sh` script :
+
+```sh
+cd ./scripts
+./run_training.sh
+```
+
+After training, the resulting model will be saved under `/model` in **niva_project_data_root**
+as "training_$date" by default:
+
+```txt
+niva_project_data_root
+├── datasets
+├── eopatches
+├── sentinel2
+├── npz_files
+├── patchlets_dataframe.csv
+└── models
+    ├── training_20240922_160621
+    └── training_20240910_031256
+```
+
+You may also directly execute the python script and set a name of your choice :
+
+```sh
+cd ./src/training
 python3 training.py <training-name>
 ```
 
-Once the training has been executed, use the training name and the `main_analyze` script under /utils to generate loss/accuracy plots as well as a textual description of hyperparameters, memory usage, model size, and more !
+Once the training has been executed, you can use the training name and the `main_analyze`
+script under /utils to generate loss/accuracy plots as well as a textual description of
+hyperparameters, memory usage or model size:
 
 ```sh
-python3 main_analyze.py
+cd ./src/training
+python3 main_analyze.py <training-name>
 ```
 
-### Inference
+#### 4. Inference
 
 TODO inference guide
 
-# Implementation details
+## Implementation details
 
-## Data preprocessing implementation
+### Data preprocessing implementation
 
-Preprocessing workflow diagram is available under /visuals :
+Preprocessing workflow diagram is available under `/visuals` :
 
 ![Preprocessing Workflow](visuals/data_preprocess_workflow.png)
 
-## Training implementation
+### Training implementation
 
 TODO add training diagram
+
+### Inference implementation
+
+TODO add inference diagram
