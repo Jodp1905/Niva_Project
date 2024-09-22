@@ -47,8 +47,11 @@ class ConfigLoader:
 
         # Validate niva_project_data_root
         if self._config.get('niva_project_data_root') is None:
-            raise ValueError(
-                'niva_project_data_root is not set in the configuration file.')
+            LOGGER.error(
+                "niva_project_data_root is not set in the yaml configuration file "
+                "nor as an environment variable."
+            )
+            sys.exit(1)
 
     def get_config(self):
         """
