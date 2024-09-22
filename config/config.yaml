@@ -2,7 +2,6 @@
 
 # GENERAL
 niva_project_data_root: null
-process_pool_workers: 32
 
 # PREPROCESSING
 download_data:
@@ -23,9 +22,6 @@ create_datasets:
   enable_augmentation: true
   use_file_sharding: false
   num_shards: 35
-
-main_preprocessing:
-  download_data: false
 
 # MODEL
 model:
