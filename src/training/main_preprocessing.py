@@ -1,12 +1,10 @@
-from download_data import main_download
 from create_eopatches import create_all_eopatches
 from create_npz import eopatches_to_npz_files
 from create_datasets import create_datasets
 from niva_utils.logger import get_logger
-from os import getenv
 import logging
 import time
-import sys
+from pathlib import Path
 
 # Import logger
 LOGGER = get_logger(__name__)
@@ -17,37 +15,33 @@ CONFIG = load_config()
 
 # Paths parameters
 NIVA_PROJECT_DATA_ROOT = CONFIG['niva_project_data_root']
-DOWNLOAD_DATA = CONFIG['main_preprocessing']['download_data']
+SENTINEL2_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/sentinel2/')
 
 
 def main():
     """
     Main function to preprocess data for the Niva Project.
-    The NIVA_PROJECT_DATA_ROOT environment variable must be set.
 
     This function performs the following steps:
-    1. Downloads &i4boundaries dataset from the Joint Research Centre Data Catalogue ftp servers.
-       Data is split into training/validation/testing sets.
-    2. Creates eopatches from the NetCDF sentinel-2 images and tiff masks.
-    3. Converts eopatches to binary numpy files (npz).
-    4. Creates normalized and augmented datasets from the npz files.
+    1. Creates eopatches from the NetCDF sentinel-2 images and tiff masks.
+    2. Converts eopatches to binary numpy files (npz).
+    3. Creates normalized and augmented datasets from the npz files.
 
-    Raises:
-        ValueError: If the NIVA_PROJECT_DATA_ROOT environment variable is not set.
     """
     if not NIVA_PROJECT_DATA_ROOT:
-        raise ValueError(
-            "NIVA_PROJECT_DATA_ROOT environment variable is not set")
+        LOGGER.error(
+            "Niva project data root is not set in the configuration file.")
+        exit(1)
+
+    if not SENTINEL2_DIR.exists():
+        LOGGER.error(
+            f"Sentinel-2 data directory {SENTINEL2_DIR} does not exist."
+            f"Please download the data using the download_data.sh script.")
+        exit(1)
 
     durations = []
 
     try:
-        if DOWNLOAD_DATA:
-            start_time = time.time()
-            main_download()
-            end_time = time.time()
-            durations.append(('main_download', end_time - start_time))
-
         start_time = time.time()
         create_all_eopatches()
         end_time = time.time()
