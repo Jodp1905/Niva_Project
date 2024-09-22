@@ -12,7 +12,7 @@ import sys
 LOGGER = get_logger(__name__)
 
 # Import config
-from config.config_loader import load_config  # noqa: E402
+from niva_utils.config_loader import load_config  # noqa: E402
 CONFIG = load_config()
 
 # Paths parameters

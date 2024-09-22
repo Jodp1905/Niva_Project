@@ -11,8 +11,9 @@ from niva_utils.logger import get_logger  # noqa: E402
 LOGGER = get_logger(__name__)
 
 # Default configuration file
-SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
-YAML_CONFIG_FILE = os.path.join(SCRIPT_DIR, 'config.yaml')
+ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+CONFIG_DIR = os.path.join(ROOT_DIR, 'config')
+YAML_CONFIG_FILEPATH = os.path.join(CONFIG_DIR, 'config.yaml')
 
 
 class ConfigLoader:
@@ -38,7 +39,7 @@ class ConfigLoader:
         LOGGER.info("Loading configuration for the first time.")
 
         # Load the YAML config
-        with open(YAML_CONFIG_FILE, 'r') as f:
+        with open(YAML_CONFIG_FILEPATH, 'r') as f:
             self._config = yaml.safe_load(f)
 
         # Override with environment variables
@@ -112,5 +113,12 @@ def load_config():
 
     Returns:
         dict: The current configuration settings.
+
+    Raises:
+        FileNotFoundError: If the configuration file is not found.
     """
+    # check if the config file exists
+    if not os.path.exists(YAML_CONFIG_FILEPATH):
+        raise FileNotFoundError(
+            f"YAML Configuration file not found at {YAML_CONFIG_FILEPATH}")
     return ConfigLoader().get_config()

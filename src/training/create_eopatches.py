@@ -28,7 +28,7 @@ LOGGER = get_logger(__name__)
 warnings.filterwarnings("ignore")
 
 # Load configuration
-from config.config_loader import load_config  # noqa: E402
+from niva_utils.config_loader import load_config  # noqa: E402
 CONFIG = load_config()
 
 # Constants
