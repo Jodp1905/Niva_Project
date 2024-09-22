@@ -14,7 +14,7 @@ PROJECT_DIR="${HOME}"
 
 # Path Parameters
 PYTHON_VENV_PATH="${PROJECT_DIR}/venv-niva"
-PYTHON_SCRIPT_DIR="${PROJECT_DIR}/niva/Niva_Project/scripts" # Has to be set for slurm jobs
+PYTHON_SCRIPT_DIR="${PROJECT_DIR}/niva/Niva_Project/src/training" # Has to be set for slurm jobs
 NSIGHT_PATH="${PROJECT_DIR}/software/Nsys_2024.5.1/target-linux-x64"
 LUSTRE_LLITE_DIR="/mnt/lustre-stats/llite"
 export DARSHAN_LIBPATH="${PROJECT_DIR}/software/darshan-3.4.5/darshan-runtime/install/lib/libdarshan.so"
