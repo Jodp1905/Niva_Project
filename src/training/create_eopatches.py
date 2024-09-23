@@ -6,9 +6,9 @@ import fs.move  # required by eopatch.save even though it is not used directly
 import os
 import sys
 from datetime import datetime, timezone
-from xarray import DataArray, Dataset, open_dataset
+from netCDF4 import Dataset, num2date
 from eolearn.core import EOPatch, FeatureType, OverwritePermission
-from numpy import datetime_as_string, newaxis, concatenate
+from numpy import newaxis, concatenate
 from sentinelhub.geometry import BBox
 from sentinelhub.geometry import CRS
 from rasterio import open as rasterio_open, DatasetReader
@@ -40,25 +40,6 @@ EOPATCH_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/eopatches/')
 PROCESS_POOL_WORKERS = os.cpu_count()
 
 
-def transform_timestamps(time_data: DataArray) -> list:
-    """
-    Transforms xarray.DataArray timestamps to ISO 8601 strings with utc timezone.
-
-    Args:
-        time_data (DataArray): The input xarray.DataArray timestamps.
-
-    Returns:
-        list: A list of transformed timestamps as datetime objects with utc timezone.
-    """
-    time_strings = datetime_as_string(time_data, unit='ms')
-    transformed_timestamps = []
-    for t in time_strings:
-        dt = datetime.strptime(
-            t, '%Y-%m-%dT%H:%M:%S.%f').replace(tzinfo=timezone.utc)
-        transformed_timestamps.append(dt)
-    return transformed_timestamps
-
-
 def create_eopatch_from_nc_and_tiff(nc_file_path: str, mask_tiff_path: str,
                                     output_eopatch_dir: str) -> EOPatch:
     """
@@ -75,53 +56,72 @@ def create_eopatch_from_nc_and_tiff(nc_file_path: str, mask_tiff_path: str,
 
     Raises:
         ValueError: If the mask TIFF file does not have 4 bands.
-
     """
     try:
         LOGGER.debug(f'Entering create_eopatch_from_nc_and_tiff with '
                      f'{nc_file_path}, {mask_tiff_path}, {output_eopatch_dir}')
-        ds: Dataset = open_dataset(nc_file_path)
-        LOGGER.debug(f'Dataset structure: {ds}')
 
-        # Create a new EOPatch
-        eopatch = EOPatch()
+        # Open the NetCDF file using netCDF4.Dataset
+        with Dataset(nc_file_path, mode='r') as ds:
+            LOGGER.debug(f'Dataset structure: {ds}')
 
-        # Add time data to EOPatch
-        time_data: DataArray = ds['time'].values
-        transformed_timestamps = transform_timestamps(time_data)
-        eopatch.timestamp = transformed_timestamps
+            # Create a new EOPatch
+            eopatch = EOPatch()
 
-        # Initialize a dictionary to group bands and other data
-        data_dict = {
-            'BANDS': [],
-            'CLP': None
-        }
+            # Add time data to EOPatch
+            time_data = ds.variables['time'][:]
+            time_units = ds.variables['time'].units
+            calendar = ds.variables['time'].calendar if hasattr(
+                ds.variables['time'], 'calendar') else 'standard'
+            transformed_timestamps = num2date(
+                time_data, units=time_units, calendar=calendar)
+            eopatch.timestamp = [
+                datetime(dt.year, dt.month, dt.day, dt.hour,
+                         dt.minute, dt.second, tzinfo=timezone.utc)
+                for dt in transformed_timestamps]
 
-        LOGGER.debug('Adding raster data from NetCDF to EOPatch')
-        for var in ds.data_vars:
-            if var != 'spatial_ref':
-                data = ds[var].values
+            # Initialize a dictionary to group bands and other data
+            data_dict = {
+                'BANDS': [],
+                'CLP': None
+            }
 
-                # Eopatch data should have 4 dimensions: time, height, width, channels
-                if data.ndim == 2:
-                    # Add time and channel dimensions
-                    data = data[newaxis, ..., newaxis]
-                elif data.ndim == 3:
-                    # Add channel dimension
-                    data = data[..., newaxis]
-                else:
-                    LOGGER.warning(
-                        f"Variable {var} has unexpected number"
-                        f"of dimensions: {data.ndim}. Skipping.")
-                    continue
+            LOGGER.debug('Adding raster data from NetCDF to EOPatch')
+            for var in ds.variables:
+                if var != 'spatial_ref':
+                    data: np.ma.MaskedArray = ds.variables[var][:]
 
-                # Group bands into a single BANDS feature
-                if var.startswith('B'):
-                    data_dict['BANDS'].append(data)
-                elif var == 'CLP':
-                    data_dict['CLP'] = data
-                else:
-                    eopatch.add_feature(FeatureType.DATA, var, data)
+                    LOGGER.debug(f"Variable: {var}\n\tshape: {data.shape}\n"
+                                 f"\tdtype: {data.dtype}\n\tdata format: {type(data)}\n"
+                                 f"\tmask_value: {data.mask}\n\tfill_value: {data.fill_value}"
+                                 f"\tnum_invalid: {np.sum(data.mask)}")
+
+                    # Fill numpy.ma.core.MaskedArray with fill_value
+                    if data.mask.any():
+                        raise ValueError(
+                            f"Invalid data found in {var} for file {nc_file_path}")
+                    data = data.filled()
+
+                    LOGGER.debug(f"Variable: {var}\n\tshape: {data.shape}\n"
+                                 f"\tdtype: {data.dtype}\n\tdata format: {type(data)}\n")
+
+                    # Eopatch data should have 4 dimensions: time, height, width, channels
+                    if data.ndim == 2:
+                        # Add time and channel dimensions
+                        data = data[newaxis, ..., newaxis]
+                    elif data.ndim == 3:
+                        # Add channel dimension
+                        data = data[..., newaxis]
+                    else:
+                        continue
+
+                    # Group bands into a single BANDS feature
+                    if var.startswith('B'):
+                        data_dict['BANDS'].append(data)
+                    elif var == 'CLP':
+                        data_dict['CLP'] = data
+                    else:
+                        eopatch.add_feature(FeatureType.DATA, var, data)
 
         # Stack bands data along the last dimension (channels)
         if data_dict['BANDS']:
@@ -148,34 +148,32 @@ def create_eopatch_from_nc_and_tiff(nc_file_path: str, mask_tiff_path: str,
         # Add bbox to EOPatch
         eopatch.bbox = bbox
 
-        # Exract mask data
-        # TODO : why are EXTENT, BOUNDARY and ENUM floats ?
+        # Extract mask data
         extent = mask_data[0].astype(np.int32)
         boundary = mask_data[1].astype(np.int32)
         distance = mask_data[2]
         enum = mask_data[3].astype(np.int32)
 
         # Add each tif mask as a feature in the EOPatch
-        # TODO : we get a warning here, can we fix it by using FeatureType.DATA_TIMELESS ?
-        eopatch.add_feature(FeatureType.MASK_TIMELESS, 'EXTENT',
+        eopatch.add_feature(FeatureType.DATA_TIMELESS, 'EXTENT',
                             extent[..., newaxis])
-        eopatch.add_feature(FeatureType.MASK_TIMELESS, 'BOUNDARY',
+        eopatch.add_feature(FeatureType.DATA_TIMELESS, 'BOUNDARY',
                             boundary[..., newaxis])
-        eopatch.add_feature(FeatureType.MASK_TIMELESS, 'DISTANCE',
+        eopatch.add_feature(FeatureType.DATA_TIMELESS, 'DISTANCE',
                             distance[..., newaxis])
-        eopatch.add_feature(FeatureType.MASK_TIMELESS, 'ENUM',
+        eopatch.add_feature(FeatureType.DATA_TIMELESS, 'ENUM',
                             enum[..., newaxis])
 
         # Verify that the features have been added
         for feature in ['EXTENT', 'BOUNDARY', 'DISTANCE', 'ENUM']:
-            if feature not in eopatch.mask_timeless:
-                LOGGER.error(f'Failed to add {feature} mask to EOPatch')
+            if feature not in eopatch.data_timeless:
+                raise ValueError(f'Failed to add {feature} mask to EOPatch')
 
         # Create and save unique EOPatch
         basename = os.path.basename(nc_file_path)
         image_id = ("_".join(basename.split('_')[:2]))
         eopatch_name = f'eopatch_{image_id}'
-        eopatch_path = output_eopatch_dir / eopatch_name
+        eopatch_path = os.path.join(output_eopatch_dir, eopatch_name)
         LOGGER.debug(f'Saving EOPatch to {eopatch_path}')
         os.makedirs(eopatch_path, exist_ok=True)
         eopatch.save(eopatch_path,
@@ -183,7 +181,7 @@ def create_eopatch_from_nc_and_tiff(nc_file_path: str, mask_tiff_path: str,
         return 0
 
     except Exception as e:
-        LOGGER.error(f'An error occurred: {e}')
+        LOGGER.error(f'An error occurred: {e}', exc_info=True)
         raise e
 
 
@@ -246,7 +244,7 @@ def create_all_eopatches() -> None:
                     try:
                         future.result()
                     except Exception as e:
-                        LOGGER.error(f'A task failed: {e}')
+                        LOGGER.error(f'A task failed: {e}', exc_info=True)
                     pbar.update(1)
         LOGGER.info(f'Created EOPatches for {fold} fold')
     LOGGER.info('All EOPatches created')
