@@ -54,11 +54,11 @@ def extract_npys(patchlet_path: str) -> Tuple:
     try:
         X_data = np.load(os.path.join(patchlet_path, 'data', 'BANDS.npy'))
         y_boundary = np.load(os.path.join(
-            patchlet_path, 'mask_timeless', 'BOUNDARY.npy'))
+            patchlet_path, 'data_timeless', 'BOUNDARY.npy'))
         y_extent = np.load(os.path.join(
-            patchlet_path, 'mask_timeless', 'EXTENT.npy'))
+            patchlet_path, 'data_timeless', 'EXTENT.npy'))
         y_distance = np.load(os.path.join(
-            patchlet_path, 'mask_timeless', 'DISTANCE.npy'))
+            patchlet_path, 'data_timeless', 'DISTANCE.npy'))
 
         # Repeat the timeless masks along the time dimension
         eop = EOPatch.load(patchlet_path, lazy_loading=True)
