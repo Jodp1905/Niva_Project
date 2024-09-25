@@ -39,6 +39,8 @@ The preprocessing pipeline is composed of a few configurable steps with paramete
 | `AI4BOUNDARIES_SPLIT_TABLE`     | Path to the file with split table for Sentinel-2   | `str`   | `ai4boundaries_ftp_urls_sentinel2_split.csv` |
 | `DL_RATE_LIMIT`                 | Rate limit for downloads in requests per second    | `int`   | `5`                                       |
 | `DL_RETRY_LIMIT`                | Retry limit count for failed downloads             | `int`   | `3`                                       |
+| `FRACTION_DOWNLOAD`             | Fraction of the dataset to download                | `float` | `1.0`                                       |
+
 
 ### Create EOPatches
 
@@ -107,3 +109,10 @@ export DILATION_RATE="1,3,5,8"
 | `ENABLE_DATA_SHARDING`      | Whether to enable data sharding during training    | `bool`  | `true`                                    |
 | `CHKPT_FOLDER`              | Folder to store checkpoints                        | `str`   | `null`                                    |
 | `TENSORBOARD_UPDATE_FREQ`   | Frequency of updates for TensorBoard               | `str`   | `epoch`                                   |
+
+## Inference
+
+| Environment Variable        | Description                                        | Type    | Default Value                             |
+|-----------------------------|----------------------------------------------------|---------|-------------------------------------------|
+| `INPUT_COORDS_PATH`         | Path to the GeoJson file used as inference input   | `str`   | `null`                                    |
+| `XARRAY_CHUNK_SIZE`         | Size of a chunk for Dask parallel processing of input tile   | `int`   | `2048`                          |

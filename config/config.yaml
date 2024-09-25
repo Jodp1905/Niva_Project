@@ -9,6 +9,7 @@ download_data:
   ai4boundaries_split_table: "ai4boundaries_ftp_urls_sentinel2_split.csv"
   dl_rate_limit: 5
   dl_retry_limit: 3
+  fraction_download: 0.05
 
 create_eopatches:
   # no modifiable parameters
@@ -61,5 +62,7 @@ training:
   tensorboard_update_freq: "epoch"
 
 # INFERENCE
-inference:
+download_tile:
+  input_coords_path: null
+  xarray_chunk_size: 2048
   # not done yet
