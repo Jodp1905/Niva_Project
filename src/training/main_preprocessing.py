@@ -15,7 +15,7 @@ CONFIG = load_config()
 
 # Paths parameters
 NIVA_PROJECT_DATA_ROOT = CONFIG['niva_project_data_root']
-SENTINEL2_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/sentinel2/')
+SENTINEL2_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/training_data/sentinel2/')
 
 
 def main():

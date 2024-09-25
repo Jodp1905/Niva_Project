@@ -28,9 +28,10 @@ NIVA_PROJECT_DATA_ROOT = CONFIG['niva_project_data_root']
 NPZ_CHUNK_SIZE = CONFIG['create_npz']['npz_chunk_size']
 
 # Inferred constants
-EOPTACHES_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/eopatches/')
-NPZ_FILES_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/npz_files/')
-METADATA_PATH = Path(f'{NIVA_PROJECT_DATA_ROOT}/patchlets_dataframe.csv')
+EOPTACHES_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/training_data/eopatches/')
+NPZ_FILES_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/training_data/npz_files/')
+METADATA_PATH = Path(
+    f'{NIVA_PROJECT_DATA_ROOT}/training_data/patchlets_dataframe.csv')
 PROCESS_POOL_WORKERS = os.cpu_count()
 
 

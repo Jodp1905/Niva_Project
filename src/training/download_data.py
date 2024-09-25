@@ -31,9 +31,10 @@ AI4BOUNDARIES_URL = CONFIG['download_data']['ai4boundaries_url']
 AI4BOUNDARIES_SPLIT_FILE = CONFIG['download_data']['ai4boundaries_split_table']
 RATE_LIMIT = CONFIG['download_data']['dl_rate_limit']
 RETRY_LIMIT = CONFIG['download_data']['dl_retry_limit']
+FRACTION_DOWNLOAD = CONFIG['download_data']['fraction_download']
 
 # Inferred constants
-SENTINEL2_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/sentinel2/')
+SENTINEL2_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/training_data/sentinel2/')
 
 
 async def download_file(session: aiohttp.ClientSession,
@@ -265,7 +266,8 @@ def main_download():
         os.makedirs(os.path.join(folder_save, "masks"), exist_ok=True)
         os.makedirs(os.path.join(folder_save, "images"), exist_ok=True)
 
-        fold_data = data[data['new_split'] == fold]
+        fold_data = data[data['new_split'] ==
+                         fold].sample(frac=FRACTION_DOWNLOAD)
         asyncio.run(download_images(fold_data, folder_save))
         time_end = time.time()
         dl_time_str = time.strftime(

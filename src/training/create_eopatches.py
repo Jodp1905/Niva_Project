@@ -35,8 +35,8 @@ CONFIG = load_config()
 NIVA_PROJECT_DATA_ROOT = CONFIG['niva_project_data_root']
 
 # Inferred constants
-SENTINEL2_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/sentinel2/')
-EOPATCH_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/eopatches/')
+SENTINEL2_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/training_data/sentinel2/')
+EOPATCH_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/training_data/eopatches/')
 PROCESS_POOL_WORKERS = os.cpu_count()
 
 

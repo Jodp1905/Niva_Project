@@ -39,9 +39,9 @@ CHKPT_FOLDER = CONFIG_TRAINING['chkpt_folder']
 TENSORBOARD_UPDATE_FREQ = CONFIG_TRAINING['tensorboard_update_freq']
 
 # Inferred constants
-DATASET_FOLDER = Path(f'{NIVA_PROJECT_DATA_ROOT}/datasets/')
+DATASET_FOLDER = Path(f'{NIVA_PROJECT_DATA_ROOT}/training_data/datasets/')
 MODEL_FOLDER = Path(f'{NIVA_PROJECT_DATA_ROOT}/models/')
-NPZ_FOLDER = Path(f'{NIVA_PROJECT_DATA_ROOT}/npz_files/')
+NPZ_FOLDER = Path(f'{NIVA_PROJECT_DATA_ROOT}/training_data/npz_files/')
 
 # Configure TensorFlow strategies at the earliest
 

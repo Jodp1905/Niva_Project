@@ -32,9 +32,10 @@ USE_FILE_SHARDING = CONFIG['create_datasets']['use_file_sharding']
 NUM_SHARDS = CONFIG['create_datasets']['num_shards']
 
 # Inferred constants
-NPZ_FILES_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/npz_files/')
-DATASET_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/datasets/')
-METADATA_PATH = Path(f'{NIVA_PROJECT_DATA_ROOT}/patchlets_dataframe.csv')
+NPZ_FILES_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/training_data/npz_files/')
+DATASET_DIR = Path(f'{NIVA_PROJECT_DATA_ROOT}/training_data/datasets/')
+METADATA_PATH = Path(
+    f'{NIVA_PROJECT_DATA_ROOT}/training_data/patchlets_dataframe.csv')
 PROCESS_POOL_WORKERS = os.cpu_count()
 
 # Normalization and augmentation constants
