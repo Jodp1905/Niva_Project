@@ -14,7 +14,6 @@ import folium
 import shapely
 from branca.element import Figure
 from dask.diagnostics import ProgressBar
-from dask import config as dask_config
 import http.server
 import socketserver
 import webbrowser
@@ -38,6 +37,7 @@ CONFIG = load_config()
 NIVA_PROJECT_DATA_ROOT = CONFIG['niva_project_data_root']
 INPUT_COORDS_PATH = CONFIG['download_tile']['input_coords_path']
 XARRAY_CHUNK_SIZE = CONFIG['download_tile']['xarray_chunk_size']
+TILE_NAME = CONFIG['download_tile']['tile_name']
 
 # Inferred constants
 TILE_FOLDER = Path(f"{NIVA_PROJECT_DATA_ROOT}/inference/tile")
@@ -241,7 +241,7 @@ def plot_bounds_map(gdf: gpd.GeoDataFrame,
             hmtl_map_path,), daemon=True).start()
 
 
-def download_tile(use_dask: bool = True):
+def download_tile(use_dask: bool = True) -> None:
     """
     Downloads a tile of satellite imagery data based on specified parameters and saves it to disk.
 
@@ -255,9 +255,9 @@ def download_tile(use_dask: bool = True):
     None
     """
     if INPUT_COORDS_PATH is None:
-        raise ValueError("Path for the input coordinate gejson file is not defined, please "
-                         "set it in the configuration YAML file "
-                         "or with the environment variable 'INPUT_COORDS_PATH'")
+        raise ValueError("Path for the input coordinate geojson file is not defined, please "
+                         "set it in the configuration YAML file or with the environment "
+                         "variable 'INPUT_COORDS_PATH'")
     datatime = "2023-02-01/2023-04-30"
     filters = {
         "eo:cloud_cover": {"lt": 0.6},
@@ -280,63 +280,35 @@ def download_tile(use_dask: bool = True):
     # ["B02", "B03", "B04", "B08", "SCL"]
     bands = ["blue", "green", "red", "nir", "scl"]
     item = items[tidx]
+    LOGGER.debug(f"STAC item metadata: {item.to_dict()}")
+    time_start = time()
     if use_dask:
         ds: xr.Dataset = odc.stac.load(items=[item],
                                        bands=bands,
                                        chunks={'x': XARRAY_CHUNK_SIZE,
                                                'y': XARRAY_CHUNK_SIZE},
                                        resolution=10)
+        with ProgressBar():
+            ds.load()
     else:
         ds: xr.Dataset = odc.stac.load(items=[item],
                                        bands=bands,
                                        resolution=10,
                                        progress=tqdm.tqdm)
+    time_end = time()
+    LOGGER.info(f"Tile loaded in {time_end - time_start:.2f} seconds")
+
     # Rename variables
     ds = ds.rename_vars(
         {"blue": "B2", "green": "B3", "red": "B4", "nir": "B8"})
-    LOGGER.info(f"Loaded dataset:\n{ds}")
-    # Set encoding for compression and optimized I/O performance with Dask
-    # https://docs.xarray.dev/en/latest/user-guide/dask.html
-    if use_dask:
-        encoding = {
-            'B2': {'zlib': True, 'complevel': 4,
-                   'chunksizes': (1, XARRAY_CHUNK_SIZE, XARRAY_CHUNK_SIZE)},
-            'B3': {'zlib': True, 'complevel': 4,
-                   'chunksizes': (1, XARRAY_CHUNK_SIZE, XARRAY_CHUNK_SIZE)},
-            'B4': {'zlib': True, 'complevel': 4,
-                   'chunksizes': (1, XARRAY_CHUNK_SIZE, XARRAY_CHUNK_SIZE)},
-            'B8': {'zlib': True, 'complevel': 4,
-                   'chunksizes': (1, XARRAY_CHUNK_SIZE, XARRAY_CHUNK_SIZE)},
-            'scl': {'zlib': True, 'complevel': 4,
-                    'chunksizes': (1, XARRAY_CHUNK_SIZE, XARRAY_CHUNK_SIZE)}
-        }
-    else:
-        encoding = {
-            'B2': {'zlib': True, 'complevel': 4},
-            'B3': {'zlib': True, 'complevel': 4},
-            'B4': {'zlib': True, 'complevel': 4},
-            'B8': {'zlib': True, 'complevel': 4},
-            'scl': {'zlib': True, 'complevel': 4}
-        }
+
     # Save the tile to disk
-    time_before = time()
-    filename = "input_tile.nc"
-    tile_file = os.path.join(TILE_FOLDER, filename)
+    tile_file = os.path.join(TILE_FOLDER, TILE_NAME)
     if os.path.exists(tile_file):
         LOGGER.info(f"Detecting existing tile file {tile_file}, removing it")
         os.remove(tile_file)
-    delayed_obj = ds.to_netcdf(path=tile_file,
-                               encoding=encoding,
-                               compute=False)
-    LOGGER.debug("Delayed object created")
-    if use_dask:
-        with dask_config.set(scheduler='threads'):
-            with ProgressBar():
-                delayed_obj.compute()
-    else:
-        delayed_obj.compute()
-    time_after = time()
-    f"Saved tile in {time_after - time_before} seconds to {tile_file}"
+    ds.to_netcdf(path=tile_file)
+    LOGGER.info(f"Tile saved to {tile_file}")
 
 
 if __name__ == "__main__":
