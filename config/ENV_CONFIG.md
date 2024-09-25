@@ -37,10 +37,9 @@ The preprocessing pipeline is composed of a few configurable steps with paramete
 |---------------------------------|----------------------------------------------------|---------|-------------------------------------------|
 | `AI4BOUNDARIES_URL`             | ftp server URL for downloading AI4BOUNDARIES data  | `str`   | `http://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/DRLL/AI4BOUNDARIES` |
 | `AI4BOUNDARIES_SPLIT_TABLE`     | Path to the file with split table for Sentinel-2   | `str`   | `ai4boundaries_ftp_urls_sentinel2_split.csv` |
-| `DL_RATE_LIMIT`                 | Rate limit for downloads in requests per second    | `int`   | `5`                                       |
-| `DL_RETRY_LIMIT`                | Retry limit count for failed downloads             | `int`   | `3`                                       |
-| `FRACTION_DOWNLOAD`             | Fraction of the dataset to download                | `float` | `1.0`                                       |
-
+| `DL_RATE_LIMIT`                 | Rate limit for downloads in requests per second    | `int`   | `5`                                          |
+| `DL_RETRY_LIMIT`                | Retry limit count for failed downloads             | `int`   | `3`                                          |
+| `FRACTION_DOWNLOAD`             | Fraction of the dataset to download                | `float` | `1.0`                                        |
 
 ### Create EOPatches
 
@@ -54,13 +53,13 @@ No modifiable parameters
 
 ### Create Datasets
 
-| Environment Variable            | Description                                              | Type    | Default Value                             |
-|---------------------------------|----------------------------------------------------------|---------|-------------------------------------------|
-| `SHUFFLE_BUFFER_SIZE`           | Size of the shuffle buffer (tf shuffle function)         | `int`   | `2000`                                    |
-| `INTERLEAVE_CYCLE_LENGTH`       | Number of interleave cycles (tf interleave function)     | `int`   | `10`                                      |
-| `ENABLE_AUGMENTATION`           | Whether to enable data augmentation                      | `bool`  | `true`                                    |
-| `USE_FILE_SHARDING`             | Whether to use file sharding                             | `bool`  | `false`                                   |
-| `NUM_SHARDS`                    | Number of shards to create if fale sharding is activated | `int`   | `35`                                      |
+| Environment Variable            | Description                                              | Type    | Default Value   |
+|---------------------------------|----------------------------------------------------------|---------|-----------------|
+| `SHUFFLE_BUFFER_SIZE`           | Size of the shuffle buffer (tf shuffle function)         | `int`   | `2000`          |
+| `INTERLEAVE_CYCLE_LENGTH`       | Number of interleave cycles (tf interleave function)     | `int`   | `10`            |
+| `ENABLE_AUGMENTATION`           | Whether to enable data augmentation                      | `bool`  | `true`          |
+| `USE_FILE_SHARDING`             | Whether to use file sharding                             | `bool`  | `false`         |
+| `NUM_SHARDS`                    | Number of shards to create if fale sharding is activated | `int`   | `35`            |
 
 ## Model Configuration
 
@@ -112,7 +111,21 @@ export DILATION_RATE="1,3,5,8"
 
 ## Inference
 
-| Environment Variable        | Description                                        | Type    | Default Value                             |
-|-----------------------------|----------------------------------------------------|---------|-------------------------------------------|
-| `INPUT_COORDS_PATH`         | Path to the GeoJson file used as inference input   | `str`   | `null`                                    |
+### download tile
+
+| Environment Variable        | Description                                                  | Type    | Default Value                   |
+|-----------------------------|--------------------------------------------------------------|---------|---------------------------------|
+| `INPUT_COORDS_PATH`         | Path to the GeoJson file used as inference input             | `str`   | `null`                          |
+| `TILE_NAME`                 | Name of the created NetCDF4 tile file                        | `str`   | `null`                          |
 | `XARRAY_CHUNK_SIZE`         | Size of a chunk for Dask parallel processing of input tile   | `int`   | `2048`                          |
+
+### create subtiles
+
+| Environment Variable        | Description                                                  | Type    | Default Value                   |
+|-----------------------------|--------------------------------------------------------------|---------|---------------------------------|
+| `HEIGHT`                    | Height of an eopatch generated from NetCDF4 file tile        | `int`   | `1000`                          |
+| `WIDTH`                     | Width of an eopatch generated from NetCDF4 file tile         | `int`   | `1000`                          |
+| `OVERLAP`                   | (NOT IMPLEMENTD) Overlap value between consecutive generated eopacthes | `int`   | `0`                   |
+| `NUM_SPLIT`                 | Limit number of eopatches to generate                        | `int`   | `-1` (no limit)                 |
+| `BEGIN_X`                   | x-axis coordinate where eopatch sampling starts              | `int`   | `0`                             |
+| `BEGIN_Y`                   | y-axis coordinate where eopatch sampling starts              | `int`   | `0`                             |

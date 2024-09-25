@@ -63,6 +63,17 @@ training:
 
 # INFERENCE
 download_tile:
-  input_coords_path: null
+  input_coords_path: "/home/jules/stage/ai4boundaries_data_limited/inference/tile/input_coords.geojson"
+  tile_name: "input_tile.nc"
   xarray_chunk_size: 2048
-  # not done yet
+
+
+create_subtiles:
+  split_config:
+    height: 1000
+    width: 1000
+    overlap: 0
+    num_split: -1 # all sub-tile splits with parameter -1
+    begin_x: 0
+    begin_y: 0
+
