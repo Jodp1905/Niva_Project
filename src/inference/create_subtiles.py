@@ -143,7 +143,7 @@ def create_eopatch_ds(ds: xr.Dataset,
     return eopatch
 
 
-def main_eopatches():
+def main_subtiles_creation():
     EOPATCHES_FOLDER.mkdir(parents=True, exist_ok=True)
     SPLIT_CONFIG["tile_path"] = TILE_PATH
     SPLIT_CONFIG["eopatches_folder"] = EOPATCHES_FOLDER
@@ -151,4 +151,4 @@ def main_eopatches():
 
 
 if __name__ == "__main__":
-    main_eopatches()
+    main_subtiles_creation()
