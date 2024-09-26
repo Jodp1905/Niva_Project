@@ -11,8 +11,8 @@
 # based on https://github.com/sentinel-hub/field-delineation/blob/main/fd/vectorisation.py
 
 import copy
-import logging
 import os
+import sys
 import time
 from distutils.dir_util import copy_tree
 from functools import partial
@@ -32,7 +32,29 @@ from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from typing import Callable, List, Any, Iterable, Optional
 
-LOGGER = logging.getLogger(__name__)
+# Add the src directory to the path
+src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(src_path)
+
+# Import logger
+from niva_utils.logger import get_logger  # noqa: E402
+LOGGER = get_logger(__name__)
+
+# Load configuration
+from niva_utils.config_loader import load_config  # noqa: E402
+CONFIG = load_config()
+
+# Constants
+NIVA_PROJECT_DATA_ROOT = CONFIG['niva_project_data_root']
+VECTORIZE_CONFIG = CONFIG['vectorize_config']
+
+# Infered constants
+TIFFS_FOLDER = os.path.join(NIVA_PROJECT_DATA_ROOT, 'inference/tiffs')
+WEIGHT_FILE = os.path.join(NIVA_PROJECT_DATA_ROOT, 'inference/weights.tiff')
+PREDICTIONS_DIR = os.path.join(NIVA_PROJECT_DATA_ROOT, 'inference/predictions')
+CONTOURS_DIR = os.path.join(NIVA_PROJECT_DATA_ROOT, 'inference/contours')
+MAX_WORKERS = os.cpu_count()
+
 
 def multiprocess(process_fun: Callable, arguments: Iterable[Any],
                  total: Optional[int] = None, max_workers: int = 4) -> List[Any]:
@@ -54,11 +76,12 @@ def multiprocess(process_fun: Callable, arguments: Iterable[Any],
         results = list(tqdm(executor.map(process_fun, arguments), total=total))
     return results
 
+
 @dataclass
 class VectorisationConfig:
     tiffs_folder: str
-    #time_intervals: List[str]
-    #utms: List[str]
+    # time_intervals: List[str]
+    # utms: List[str]
     shape: Tuple[int, int]
     buffer: Tuple[int, int]
     weights_file: str
@@ -74,7 +97,7 @@ class VectorisationConfig:
     rows_merging: bool = True
 
 
-def average_function(no_data: Union[int, float] = 0, round_output: bool =False) -> str:
+def average_function(no_data: Union[int, float] = 0, round_output: bool = False) -> str:
     """ A Python function that will be added to VRT and used to calculate weighted average over overlaps
 
     :param no_data: no data pixel value (default = 0)
@@ -149,7 +172,8 @@ def write_vrt(files: List[str], weights_file: str, out_vrt: str, function: Optio
     rasterbandchildren = list(vrtrasterband)
     root.remove(vrtrasterband)
 
-    dict_attr = {'dataType': 'Float32', 'band': '1', 'subClass': 'VRTDerivedRasterBand'}
+    dict_attr = {'dataType': 'Float32', 'band': '1',
+                 'subClass': 'VRTDerivedRasterBand'}
     raster_band_tag = etree.SubElement(root, 'VRTRasterBand', dict_attr)
 
     # Add childern tags to derivedRasterBand tag
@@ -236,7 +260,7 @@ def split_intersecting(df: gpd.GeoDataFrame, overlap: Polygon) -> Tuple[gpd.GeoD
         return df[~df.index.isin(precise_matches)].copy(), df[df.index.isin(precise_matches)].copy()
 
     return df, gpd.GeoDataFrame(geometry=[], crs=df.crs)
-    
+
 
 def merge_intersecting(df1: gpd.GeoDataFrame, df2: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """ Merge two dataframes of geometries into one """
@@ -264,13 +288,15 @@ def concat_consecutive(merged: gpd.GeoDataFrame, previous: gpd.GeoDataFrame, cur
 
     x, y = current_offset
     a, b = overlap_size
-    overlap_poly = Polygon.from_bounds(*(transform * (x, y)), *(transform * (x + a, y + b)))
+    overlap_poly = Polygon.from_bounds(
+        *(transform * (x, y)), *(transform * (x + a, y + b)))
 
     if len(previous) == 0:
         return merged, current
 
     if len(current) == 0:
-        merged = gpd.GeoDataFrame(pd.concat([merged, previous]), crs=previous.crs)
+        merged = gpd.GeoDataFrame(
+            pd.concat([merged, previous]), crs=previous.crs)
         return merged, gpd.GeoDataFrame(geometry=[], crs=merged.crs)
 
     previous_non, previous_int = split_intersecting(previous, overlap_poly)
@@ -280,10 +306,14 @@ def concat_consecutive(merged: gpd.GeoDataFrame, previous: gpd.GeoDataFrame, cur
         # check if intersecting "touches" the "right edge", if so, add it to current_non
         x = x + direction[0]
         y = y + direction[1]
-        overlap_poly_end = Polygon.from_bounds(*(transform * (x, y)), *(transform * (x + a, y + b)))
-        intersecting_ok, intersecting_next = split_intersecting(intersecting, overlap_poly_end)
-        merged = gpd.GeoDataFrame(pd.concat(list_dfs + [previous_non, intersecting_ok]), crs=previous.crs)
-        intersecting_next = gpd.GeoDataFrame(pd.concat([intersecting_next, current_non]), crs=previous.crs)
+        overlap_poly_end = Polygon.from_bounds(
+            *(transform * (x, y)), *(transform * (x + a, y + b)))
+        intersecting_ok, intersecting_next = split_intersecting(
+            intersecting, overlap_poly_end)
+        merged = gpd.GeoDataFrame(
+            pd.concat(list_dfs + [previous_non, intersecting_ok]), crs=previous.crs)
+        intersecting_next = gpd.GeoDataFrame(
+            pd.concat([intersecting_next, current_non]), crs=previous.crs)
         return merged, intersecting_next
 
     return gpd.GeoDataFrame(pd.concat(list_dfs + [previous_non]), crs=previous.crs), current_non
@@ -298,7 +328,8 @@ def _process_row(row: int, vrt_file: str, vrt_dim: Tuple, contours_dir: str = '.
     try:
         col = 0
         merged = None
-        prev_name, finished, exc = run_contour(col, row, size, vrt_file, threshold, contours_dir, cleanup, skip_existing)
+        prev_name, finished, exc = run_contour(
+            col, row, size, vrt_file, threshold, contours_dir, cleanup, skip_existing)
         if not finished:
             return merged_file, finished, exc
         prev = unpack_contours(prev_name, threshold=threshold)
@@ -308,16 +339,19 @@ def _process_row(row: int, vrt_file: str, vrt_dim: Tuple, contours_dir: str = '.
         while col <= (vrt_dim[0] - size):
             col = col + size - buff
             offset = col, row
-            cur_name, finished, exc = run_contour(col, row, size, vrt_file, threshold, contours_dir, cleanup, skip_existing)
+            cur_name, finished, exc = run_contour(
+                col, row, size, vrt_file, threshold, contours_dir, cleanup, skip_existing)
             if not finished:
                 return merged_file, finished, exc
             cur = unpack_contours(cur_name, threshold=threshold)
-            merged, prev = concat_consecutive(merged, prev, cur, offset, (buff, size), (size - buff, 0), transform)
+            merged, prev = concat_consecutive(
+                merged, prev, cur, offset, (buff, size), (size - buff, 0), transform)
             if cleanup:
                 os.remove(cur_name)
         merged = gpd.GeoDataFrame(pd.concat([merged, prev]), crs=prev.crs)
 
-        merged.to_file(merged_file, driver='GPKG')  # upgrade geopandas-1.0.1, to make version compatible
+        # upgrade geopandas-1.0.1, to make version compatible
+        merged.to_file(merged_file, driver='GPKG')
         return merged_file, True, None
     except Exception as exc:
         return merged_file, False, exc
@@ -481,6 +515,48 @@ def run_vectorisation(config: VectorisationConfig) -> List[str]:
     LOGGER.info(
         f'Row contours processing for {time_interval}/{utm} done in {(time.time() - start) / 60} min!\n\n')
 
-    list_of_merged_files = multiprocess(merging_rows, rows, max_workers=config.max_workers)
+    list_of_merged_files = multiprocess(
+        merging_rows, rows, max_workers=config.max_workers)
 
     return list_of_merged_files
+
+
+def main_vectorisation():
+    """ Main function to perform vectorisation on the predictions """
+    # Create new directories
+    os.makedirs(PREDICTIONS_DIR, exist_ok=True)
+    os.makedirs(CONTOURS_DIR, exist_ok=True)
+
+    # Complete the VECTORIZE_CONFIG dictionary with necessary paths
+    VECTORIZE_CONFIG["tiffs_folder"] = TIFFS_FOLDER
+    VECTORIZE_CONFIG["weights_file"] = WEIGHT_FILE
+    VECTORIZE_CONFIG["vrt_dir"] = TIFFS_FOLDER
+    VECTORIZE_CONFIG["predictions_dir"] = PREDICTIONS_DIR
+    VECTORIZE_CONFIG["contours_dir"] = CONTOURS_DIR
+    VECTORIZE_CONFIG["max_workers"] = MAX_WORKERS
+
+    # Create VectorisationConfig object
+    vector_config = VectorisationConfig(
+        tiffs_folder=VECTORIZE_CONFIG['tiffs_folder'],
+        # time_intervals=config['time_intervals'],
+        # utms=config['utms'],
+        shape=tuple(VECTORIZE_CONFIG['shape']),
+        buffer=tuple(VECTORIZE_CONFIG['buffer']),
+        weights_file=VECTORIZE_CONFIG['weights_file'],
+        vrt_dir=VECTORIZE_CONFIG['vrt_dir'],
+        predictions_dir=VECTORIZE_CONFIG['predictions_dir'],
+        contours_dir=VECTORIZE_CONFIG['contours_dir'],
+        max_workers=VECTORIZE_CONFIG['max_workers'],
+        chunk_size=VECTORIZE_CONFIG['chunk_size'],
+        chunk_overlap=VECTORIZE_CONFIG['chunk_overlap'],
+        threshold=VECTORIZE_CONFIG['threshold'],
+        cleanup=VECTORIZE_CONFIG['cleanup'],
+        skip_existing=VECTORIZE_CONFIG['skip_existing'],
+        rows_merging=VECTORIZE_CONFIG['rows_merging']
+    )
+    results = run_vectorisation(config=vector_config)
+    LOGGER.info(f'Vectorisation completed for {len(results)} files')
+
+
+if __name__ == "__main__":
+    main_vectorisation()
