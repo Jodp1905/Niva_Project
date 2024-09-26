@@ -1,7 +1,7 @@
 # Config file for the project
 
 # GENERAL
-niva_project_data_root: null
+niva_project_data_root: null # TO SET
 
 # PREPROCESSING
 download_data:
@@ -65,7 +65,7 @@ training:
 
 # tile download configuration
 download_tile:
-  input_coords_path: "/home/jules/stage/ai4boundaries_data_limited/inference/tile/input_coords.geojson"
+  input_coords_path: null # TO SET
   tile_name: "input_tile.nc"
   xarray_chunk_size: 2048
 
@@ -80,7 +80,7 @@ split_config:
 
 # prediction configuration
 prediction_config:
-  model_path: "/home/jules/stage/ai4boundaries_data_limited/inference/trained_model"
+  model_path: null # TO SET
   height: 1024 # eopatch height + 2 pad_buffer, should by div by 32 filter of model
   width: 1024 # eopatch width + 2 pad_buffer, should by div by 32 filter of model
   n_channels: 4
