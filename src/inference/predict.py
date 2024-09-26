@@ -135,9 +135,9 @@ def save_predictions(eop_path: str,
 
 def load_model(model_cfg_path: str,
                chkpt_folder: str,
-               input_shape: List[int] = [256, 256, 4]) -> ResUnetA:
+               input_shape: Tuple[int, int, int] = (256, 256, 4)) -> ResUnetA:
     # https://github.com/sentinel-hub/field-delineation/blob/main/fd/prediction.py
-    input_shape = dict(features=[None] + list(input_shape))
+    input_shape = dict(features=[None, *input_shape])
     with open(model_cfg_path, 'r') as jfile:
         model_cfg = json.load(jfile)
 
@@ -165,29 +165,20 @@ def run_predict(prediction_config: dict) -> List[EOPatch]:
     results = []
     eopatches = [f.path for f in os.scandir(
         prediction_config["eopatches_folder"]) if f.is_dir() and f.name.startswith('eopatch')]
-    LOGGER.info(f"Founds {len(eopatches)} EOPatches to predict.")
+    LOGGER.info(f"Found {len(eopatches)} EOPatches for prediction.")
     # model of Dynamic Shapes
     assert prediction_config["height"] == prediction_config["width"], "Input height & width must be the same!"
     assert prediction_config["height"] % 32 == 0, "Input size must be div by model's filter 32!"
 
-    input_shape = [prediction_config["height"],
-                   prediction_config["width"],
-                   prediction_config["n_channels"]]
-
-    model = load_model(prediction_config["model_cfg_path"],
-                       prediction_config["chkpt_folder"],
-                       input_shape=input_shape)
-    LOGGER.info(
-        f"Model loaded successfully from {prediction_config['model_path']}.")
+    model = load_model(prediction_config["model_cfg_path"], prediction_config["model_path"],
+                       input_shape=(prediction_config["height"],
+                                    prediction_config["width"],
+                                    prediction_config["n_channels"]))
     for eopatch_path in tqdm(eopatches):
         results.append(save_predictions(eopatch_path,
                                         model,
                                         pad_buffer=prediction_config["pad_buffer"],
                                         crop_buffer=prediction_config["crop_buffer"]))
-    random_eopatch = np.random.choice(results)
-    LOGGER.info(
-        f"Visualizing predictions for random EOPatch: {random_eopatch}")
-    visualize_predictions(random_eopatch)
     return results
 
 
