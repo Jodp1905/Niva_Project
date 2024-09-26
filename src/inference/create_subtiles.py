@@ -33,7 +33,7 @@ CONFIG = load_config()
 # Constants
 NIVA_PROJECT_DATA_ROOT = CONFIG['niva_project_data_root']
 TILE_NAME = CONFIG['download_tile']['tile_name']
-SPLIT_CONFIG = CONFIG['create_subtiles']['split_config']
+SPLIT_CONFIG = CONFIG['split_config']
 
 # Inferred constants
 TILE_PATH = Path(f"{NIVA_PROJECT_DATA_ROOT}/inference/tile/{TILE_NAME}")

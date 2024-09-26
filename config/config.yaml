@@ -62,18 +62,28 @@ training:
   tensorboard_update_freq: "epoch"
 
 # INFERENCE
+
+# tile download configuration
 download_tile:
   input_coords_path: "/home/jules/stage/ai4boundaries_data_limited/inference/tile/input_coords.geojson"
   tile_name: "input_tile.nc"
   xarray_chunk_size: 2048
 
+# sub-tile split configuration
+split_config:
+  height: 1000
+  width: 1000
+  overlap: 0
+  num_split: -1 # all sub-tile splits with parameter -1
+  begin_x: 0
+  begin_y: 0
 
-create_subtiles:
-  split_config:
-    height: 1000
-    width: 1000
-    overlap: 0
-    num_split: -1 # all sub-tile splits with parameter -1
-    begin_x: 0
-    begin_y: 0
-
+# prediction configuration
+prediction_config:
+  model_path: "/home/jules/stage/ai4boundaries_data_limited/inference/trained_model"
+  height: 1024 # eopatch height + 2 pad_buffer, should by div by 32 filter of model
+  width: 1024 # eopatch width + 2 pad_buffer, should by div by 32 filter of model
+  n_channels: 4
+  pad_buffer: 12
+  crop_buffer: 12
+  batch_size: 1
