@@ -87,3 +87,8 @@ prediction_config:
   pad_buffer: 12
   crop_buffer: 12
   batch_size: 1
+
+# combine sub-tile splits configuration
+combine_config:
+  scale_factor: 1
+  disk_size: 1

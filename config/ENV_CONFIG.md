@@ -119,7 +119,7 @@ export DILATION_RATE="1,3,5,8"
 | `TILE_NAME`                 | Name of the created NetCDF4 tile file                        | `str`   | `null`                          |
 | `XARRAY_CHUNK_SIZE`         | Size of a chunk for Dask parallel processing of input tile   | `int`   | `2048`                          |
 
-### create subtiles
+### split_config
 
 | Environment Variable        | Description                                                  | Type    | Default Value                   |
 |-----------------------------|--------------------------------------------------------------|---------|---------------------------------|
