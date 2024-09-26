@@ -1,6 +1,6 @@
 from create_subtiles import main_subtiles_creation
 from predict import main_prediction
-from extract_masks import main_combine
+from combine import main_combine
 from vectorisation import main_vectorisation
 from post_process import main_postprocess
 from pathlib import Path
