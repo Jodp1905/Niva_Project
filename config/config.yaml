@@ -92,3 +92,21 @@ prediction_config:
 combine_config:
   scale_factor: 1
   disk_size: 1
+
+# vectorize configuration
+vectorize_config:
+  shape: [4000, 4000] # scale_factor * scale_factor=2 * EOPatch shape = 1000
+  buffer: [200, 200]
+  chunk_size: 500
+  chunk_overlap: 100
+  threshold: 0.6
+  cleanup: true
+  skip_existing: true
+  rows_merging: true
+
+# POSTPROCESSING
+postprocess_config:
+  simplify_tolerance: 2.5
+  smallest_area: 2
+  biggest_area: 10000000
+  version: 1.3
