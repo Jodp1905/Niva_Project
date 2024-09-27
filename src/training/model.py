@@ -33,13 +33,21 @@ def mcc_metric(y_t, y_p, threshold=0.5):
     y_true = y_t[..., -1]
     y_pred = y_p[..., -1]
     predicted = tf.cast(tf.greater(y_pred, threshold), tf.float32)
-    true_pos = tf.math.count_nonzero(predicted * y_true)
-    true_neg = tf.math.count_nonzero((predicted - 1) * (y_true - 1))
-    false_pos = tf.math.count_nonzero(predicted * (y_true - 1))
-    false_neg = tf.math.count_nonzero((predicted - 1) * y_true)
-    x = tf.cast((true_pos + false_pos) * (true_pos + false_neg)
-                * (true_neg + false_pos) * (true_neg + false_neg), tf.float32)
-    return tf.cast((true_pos * true_neg) - (false_pos * false_neg), tf.float32) / tf.sqrt(x)
+    true_pos = tf.reduce_sum(predicted * y_true)
+    true_neg = tf.reduce_sum((1 - predicted) * (1 - y_true))
+    false_pos = tf.reduce_sum(predicted * (1 - y_true))
+    false_neg = tf.reduce_sum((1 - predicted) * y_true)
+    numerator = (true_pos * true_neg) - (false_pos * false_neg)
+    denominator = tf.sqrt(
+        (true_pos + false_pos) * (true_pos + false_neg) *
+        (true_neg + false_pos) * (true_neg + false_neg)
+    )
+    mcc = tf.where(
+        tf.equal(denominator, 0),
+        0.0,  # Return 0 if denominator is 0
+        numerator / (denominator + tf.keras.backend.epsilon())
+    )
+    return mcc
 
 
 def initialise_model(input_shape, model_config, chkpt_folder=None):
