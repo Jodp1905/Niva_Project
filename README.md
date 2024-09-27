@@ -47,6 +47,20 @@ The [geos library](https://github.com/libgeos/geos) is required by python module
 
 * to install from source, see <https://github.com/libgeos/geos/blob/main/INSTALL.md>
 
+#### PostgreSQL (INFERENCE ONLY)
+
+libpq is the C application programmer's interface to PostgreSQL. It is required to install
+the `psycopg2` package
+
+* Install with apt
+
+  ```sh
+  sudo apt update
+  sudo apt-get install libpq-dev
+  ```
+
+* to install from source, see <https://www.postgresql.org/docs/current/installation.html>
+
 ### Installation
 
 #### 1. Clone the repository
@@ -79,8 +93,16 @@ You may also add the line to your ~/.bashrc file for convenience.
 
 #### 3. Install required python packages
 
-You can download the necessary python packages by using the **requirements.txt** file at
-the root of the project. The use of a virtual environment is advised:
+You can download the necessary python packages by using the requirements files at
+the root of the project:
+
+* **`requirements_training.txt`** contains necessary packages for running the training
+* **`requirements_inference.txt`** contains necessary packages for running the inference pipeline
+
+They are separated to allow for more flexibility in the install process as the inference pipeline
+requires a PostgreSQL install.
+
+The use of a virtual environment is advised:
 
 * Create and activate virtual environment
 
