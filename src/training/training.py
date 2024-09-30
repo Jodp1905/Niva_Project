@@ -1,9 +1,7 @@
 import tensorflow as tf
 import os
 import json
-import logging
 from pathlib import Path
-import pytz
 import sys
 import psutil
 import time
@@ -11,6 +9,7 @@ import pandas as pd
 from enum import Enum
 import json
 import socket
+import subprocess
 
 # Add the src directory to the path
 src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -25,18 +24,22 @@ from niva_utils.config_loader import load_config  # noqa: E402
 CONFIG = load_config()
 
 # Constants
-NIVA_PROJECT_DATA_ROOT = CONFIG['niva_project_data_root']
-CONFIG_TRAINING = CONFIG['training']
-NUM_EPOCHS = CONFIG_TRAINING['num_epochs']
-BATCH_SIZE = CONFIG_TRAINING['batch_size']
-ITERATIONS_PER_EPOCH = CONFIG_TRAINING['iterations_per_epoch']
-TRAINING_TYPE = CONFIG_TRAINING['training_type']
-USE_NPZ = CONFIG_TRAINING['use_npz']
-TF_FULL_PROFILING = CONFIG_TRAINING['tf_full_profiling']
-PREFETCH_DATA = CONFIG_TRAINING['prefetch_data']
-ENABLE_DATA_SHARDING = CONFIG_TRAINING['enable_data_sharding']
-CHKPT_FOLDER = CONFIG_TRAINING['chkpt_folder']
-TENSORBOARD_UPDATE_FREQ = CONFIG_TRAINING['tensorboard_update_freq']
+NIVA_PROJECT_DATA_ROOT: str = CONFIG['niva_project_data_root']
+CONFIG_TRAINING: dict = CONFIG['training']
+NUM_EPOCHS: int = CONFIG_TRAINING['num_epochs']
+BATCH_SIZE: int = CONFIG_TRAINING['batch_size']
+ITERATIONS_PER_EPOCH: int = CONFIG_TRAINING['iterations_per_epoch']
+TRAINING_TYPE: str = CONFIG_TRAINING['training_type']
+USE_NPZ: bool = CONFIG_TRAINING['use_npz']
+TF_FULL_PROFILING: bool = CONFIG_TRAINING['tf_full_profiling']
+PREFETCH_DATA: bool = CONFIG_TRAINING['prefetch_data']
+ENABLE_DATA_SHARDING: bool = CONFIG_TRAINING['enable_data_sharding']
+CHKPT_FOLDER: str = CONFIG_TRAINING['chkpt_folder']
+TENSORBOARD_UPDATE_FREQ: str = CONFIG_TRAINING['tensorboard_update_freq']
+NSIGHT_BATCH_PROFILING: bool = CONFIG_TRAINING['nsight_batch_profiling']
+DARSHAN_BATCH_PROFILING: bool = CONFIG_TRAINING['darshan_batch_profiling']
+DARSHAN_LIBPATH: str = CONFIG_TRAINING['darshan_libpath']
+LUSTRE_LLITE_DIR: str = CONFIG_TRAINING['lustre_llite_dir']
 
 # Inferred constants
 DATASET_FOLDER = Path(f'{NIVA_PROJECT_DATA_ROOT}/training_data/datasets/')
@@ -118,6 +121,9 @@ class PerformanceLoggingCallback(tf.keras.callbacks.Callback):
         batch_data (list): List to store batch data.
         epoch_data (list): List to store epoch data.
         model_size (float): The size of the model in GB.
+        batch_sample_interval (int): The interval at which to log batch data.
+        nsys_process (subprocess.Popen): The process for running nsys profiling.
+        batch_counter (int): The counter for the current batch.
 
     Methods:
         on_train_begin(logs=None):
@@ -136,11 +142,13 @@ class PerformanceLoggingCallback(tf.keras.callbacks.Callback):
         on_train_batch_begin(batch, logs=None):
             Called at the beginning of each training batch.
             Sets the start time of the batch.
+            If enabled, starts the nsys &/or darshan profiling.
 
         on_train_batch_end(batch, logs=None):
             Called at the end of each training batch.
             Logs the batch duration.
             Appends batch data to batch_data list.
+            If enabled, stops the nsys &/or darshan profiling.
 
         on_train_end(logs=None):
             Called at the end of training.
@@ -159,6 +167,9 @@ class PerformanceLoggingCallback(tf.keras.callbacks.Callback):
         self.batch_data = []
         self.epoch_data = []
         self.model_size = None
+        self.batch_sample_interval = 100
+        self.nsys_process = None
+        self.batch_counter = 0
 
     def on_train_begin(self, logs=None):
         mem_info = psutil.virtual_memory()
@@ -203,16 +214,26 @@ class PerformanceLoggingCallback(tf.keras.callbacks.Callback):
 
     def on_train_batch_begin(self, batch, logs=None):
         self.batch_start_time = time.time()
+        if self.batch_counter % self.batch_sample_interval == 0:
+            if NSIGHT_BATCH_PROFILING:
+                self.start_nsys_profiling()
+            if DARSHAN_BATCH_PROFILING:
+                self.start_darshan_profiling()
 
     def on_train_batch_end(self, batch, logs=None):
         batch_duration = time.time() - self.batch_start_time
-
+        if self.batch_counter % self.batch_sample_interval == 0:
+            if NSIGHT_BATCH_PROFILING:
+                self.stop_nsys_profiling()
+            if DARSHAN_BATCH_PROFILING:
+                self.stop_darshan_profiling()
         batch_data_entry = {
             'batch': batch,
             'batch_duration': batch_duration,
             **(logs or {})
         }
         self.batch_data.append(batch_data_entry)
+        self.batch_counter += 1
 
     def on_train_end(self, logs=None):
         epoch_data_path = os.path.join(self.model_path, 'epoch_data.csv')
@@ -226,6 +247,44 @@ class PerformanceLoggingCallback(tf.keras.callbacks.Callback):
         ) * variable.dtype.size for variable in self.model.trainable_weights])
         model_size_gb = model_size_bytes / (1024 ** 3)  # in GB
         return model_size_gb
+
+    def start_nsys_profiling(self):
+        try:
+            nsys_filepath = os.path.join(
+                self.model_path, 'nsight_logs', f'nsys_batch_{self.batch_counter}')
+            self.nsys_process = subprocess.Popen(
+                ['nsys', 'start', '--enable',
+                 f'storage_metrics,--lustre-volumes=all,--lustre-llite-dir={LUSTRE_LLITE_DIR}',
+                 '--python-sampling=false', '--output', nsys_filepath],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE)
+            LOGGER.info(
+                f'Started nsys profiling for batch {self.batch_counter}')
+        except Exception as e:
+            LOGGER.error(f'Error starting nsys profiling: {e}')
+
+    def stop_nsys_profiling(self):
+        if self.nsys_process:
+            try:
+                subprocess.run(['nsys', 'stop'], check=True)
+                self.nsys_process = None
+                LOGGER.info(
+                    f'Stopped nsys profiling for batch {self.batch_counter}')
+            except Exception as e:
+                LOGGER.error(f"Error stopping Nsight profiling: {e}")
+
+    def start_darshan_profiling(self):
+        darshan_filepath = os.path.join(
+            self.model_path, 'darshan_logs', f'darshan_batch_{self.batch_counter}')
+        os.environ['DARSHAN_LOGFILE'] = darshan_filepath
+        os.environ['LD_PRELOAD'] = DARSHAN_LIBPATH
+        LOGGER.info(
+            f'Started darshan profiling for batch {self.batch_counter}')
+
+    def stop_darshan_profiling(self):
+        os.environ.pop('LD_PRELOAD', None)
+        LOGGER.info(
+            f'Stopped darshan profiling for batch {self.batch_counter}')
 
 
 def initialise_callbacks(model_path):
@@ -251,6 +310,14 @@ def initialise_callbacks(model_path):
         save_best_only=True,
         save_freq='epoch',
         save_weights_only=True)
+
+    if DARSHAN_BATCH_PROFILING:
+        # Set up Darshan environment variables
+        darshan_logpath = os.path.join(model_path, 'darshan_logs')
+        os.makedirs(darshan_logpath, exist_ok=True)
+        os.environ['DXT_ENABLE_IO_TRACE'] = '1'
+        os.environ['DARSHAN_ENABLE_NONMPI'] = '1'
+        os.environ['DARSHAN_MODMEM'] = '2000'
 
     performance_callback = PerformanceLoggingCallback(model_path=model_path)
 
@@ -352,6 +419,39 @@ def check_positive_integers(**kwargs):
     return failed_args
 
 
+def check_profiling_config():
+    global DARSHAN_BATCH_PROFILING, NSIGHT_BATCH_PROFILING, DARSHAN_LIBPATH, LUSTRE_LLITE_DIR
+    # Both profiling cannot be enabled at the same time
+    if DARSHAN_BATCH_PROFILING and NSIGHT_BATCH_PROFILING:
+        LOGGER.warning(
+            'Both darshan and nsight batch profiling cannot be enabled at the same time,'
+            'disabling both')
+        DARSHAN_BATCH_PROFILING = False
+        NSIGHT_BATCH_PROFILING = False
+    # if darshan profiling is enabled, check if the library path is set and exists
+    if DARSHAN_BATCH_PROFILING:
+        if DARSHAN_LIBPATH is None:
+            LOGGER.warning(
+                'DARSHAN_BATCH_PROFILING is enabled but DARSHAN_LIBPATH is not set,'
+                'Darshan profiling disabled')
+            if not os.path.exists(DARSHAN_LIBPATH):
+                LOGGER.warning(
+                    f'Darshan library path {DARSHAN_LIBPATH} does not exist,'
+                    'Darshan profiling disabled')
+                DARSHAN_BATCH_PROFILING = False
+    # if nsight profiling is enabled, check if the llite directory is set and exists
+    if NSIGHT_BATCH_PROFILING:
+        if LUSTRE_LLITE_DIR is None:
+            LOGGER.warning(
+                'NSIGHT_BATCH_PROFILING is enabled but LUSTRE_LLITE_DIR is not set,'
+                'Nsight profiling disabled')
+            if not os.path.exists(LUSTRE_LLITE_DIR):
+                LOGGER.warning(
+                    f'Lustre llite directory {LUSTRE_LLITE_DIR} does not exist,'
+                    'Nsight profiling disabled')
+                NSIGHT_BATCH_PROFILING = False
+
+
 def training_main(
         strategy: tf.distribute.Strategy,
         model_folder: str,
@@ -391,6 +491,9 @@ def training_main(
             f"{name}={value}({type(value)})" for name, value in failed_args.items())
         raise ValueError(
             f"The following arguments must be positive integers: {failed_msg}")
+
+    # Profiling configuration check
+    check_profiling_config()
 
     # Dump hyperparameters and model configuration to json
     with open(f'{model_folder}/hyperparameters.json', 'w') as jfile:
@@ -464,6 +567,9 @@ def training_main(
             raise Exception(f'Error during model fitting') from e
         fitting_end_time = time.time()
         fitting_duration = fitting_end_time - fitting_start_time
+        LOGGER.info(
+            f'\nModel fitting completed in {fitting_duration} seconds')
+        exit(0)
 
         # Evaluate model on testing dataset
         LOGGER.info(f'Evaluating model on testing dataset')
@@ -519,6 +625,7 @@ if __name__ == '__main__':
     # Set up model folder
     model_folder = os.path.join(MODEL_FOLDER, run_name)
     os.makedirs(model_folder, exist_ok=True)
+    LOGGER.info(f'Model will be saved in {model_folder}')
     if ITERATIONS_PER_EPOCH == -1:
         ITERATIONS_PER_EPOCH = None
     training_main(
