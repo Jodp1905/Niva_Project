@@ -50,9 +50,9 @@ model:
 
 # TRAINING
 training:
-  num_epochs: 1
+  num_epochs: 30
   batch_size: 8
-  iterations_per_epoch: 5
+  iterations_per_epoch: -1
   training_type: "SingleWorker"
   use_npz: false
   tf_full_profiling: false
@@ -60,10 +60,8 @@ training:
   enable_data_sharding: true
   chkpt_folder: null
   tensorboard_update_freq: "epoch"
-  nsight_batch_profiling: false
-  darshan_batch_profiling: true # both Nsight and Darshan cannot be used at the same time
-  lustre_llite_dir: "/mnt/lustre-stats/llite" # TO SET if you want to use Nsight lustre profiling
-  darshan_libpath: "/home/jrisse/software/darshan-3.4.5/darshan-runtime/install/lib/libdarshan.so" # TO SET if you want to use Darshan
+  nsight_batch_profiling: false # TO USE with /scripts/tracing_wrapper.sh
+  lustre_llite_dir: "/mnt/lustre-stats/llite" # TO SET if you want to use Nsight lustre plugin
 
 # INFERENCE
 

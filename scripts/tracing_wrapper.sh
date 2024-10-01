@@ -2,15 +2,15 @@
 
 # Arguments:
 # $1: Tracing tool (either 'darshan' or 'nsight')
-# $2: Command to execute (e.g., python or bash script)
+# $2: Command to execute (e.g., python or bash script) and its arguments
 TRACING_TOOL=$1
 shift
-COMMAND=$@
+EXEC_COMMAND=$@
 
 # Path Parameters
 PROJECT_DIR=$HOME
 PYTHON_VENV_PATH="${PROJECT_DIR}/venv-niva"
-NSIGHT_PATH="${PROJECT_DIR}/software/Nsys_2024.5.1/target-linux-x64"
+NSIGHT_PATH="${PROJECT_DIR}/software/nsight_2024.6.0/target-linux-x64"
 LUSTRE_LLITE_DIR="/mnt/lustre-stats/llite"
 DARSHAN_LIBPATH="${PROJECT_DIR}/software/darshan-3.4.5/darshan-runtime/install/lib/libdarshan.so"
 DARSHAN_LOGDIR="${PROJECT_DIR}/niva/darshan_logs"
@@ -18,7 +18,14 @@ NSIGHT_LOGDIR="${PROJECT_DIR}/niva/nsight_logs"
 
 # Tracing Parameters
 ENABLE_TRACING=1
+
+# Darshan DXT (Darshan eXtended Tracing) generates more detailed I/O traces
 DARSHAN_DXT=0
+
+# Nsight NVTX (NVIDIA Tools Extension) enables profiling with NVTX annotations
+# Sampled batch training steps from the Python script will be captured
+# nsight_batch_profiling needs to be enabled in yaml configuration file
+NSIGHT_NVTX=1
 
 # Tracing tool choice check
 if [ "$TRACING_TOOL" == "darshan" ]; then
@@ -76,28 +83,33 @@ if [ "$ENABLE_TRACING" -eq 1 ]; then
     # nsight
     if [ "$TRACING_TOOL" == "nsight" ]; then
         echo "Nsight log file: ${NSIGHT_LOGDIR}/${run_name}"
-        cmd=$(
+        trace_cmd=$(
             cat <<EOF
 ${NSIGHT_PATH}/nsys profile \
 --enable storage_metrics,\
 --lustre-volumes=all,\
 --lustre-llite-dir="${LUSTRE_LLITE_DIR}" \
 --output="${NSIGHT_LOGDIR}/${run_name}" \
---python-sampling=false \
-$COMMAND
+--python-sampling=false
 EOF
         )
+        if [ "$NSIGHT_NVTX" -eq 1 ]; then
+            NVTX_RANGE="BATCH"
+            trace_cmd="${trace_cmd}\
+ --capture-range=nvtx\
+ --nvtx-capture=${NVTX_RANGE}\
+ --capture-range-end=repeat"
+        fi
     # darshan
     elif [ "$TRACING_TOOL" == "darshan" ]; then
         if [ "$DARSHAN_DXT" -eq 1 ]; then
             export DXT_ENABLE_IO_TRACE=1
         fi
-        cmd="env LD_PRELOAD=${DARSHAN_LIBPATH} $COMMAND"
+        trace_cmd="env LD_PRELOAD=${DARSHAN_LIBPATH}"
     fi
-else
-    cmd="$COMMAND"
 fi
 
-echo "Executing command: $cmd"
-eval "${cmd}"
+full_cmd="${trace_cmd} ${EXEC_COMMAND}"
+echo "Executing command: ${full_cmd}"
+eval "${full_cmd}"
 echo "Traced execution completed."
