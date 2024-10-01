@@ -41,7 +41,12 @@ fi
 # Darshan Parameters
 export DARSHAN_EXCLUDE_DIRS="${PYTHON_VENV_PATH}" # Exclude Python virtual environment
 export DARSHAN_MODMEM=20000                       # 20 GB of memory allowed for Darshan instrumentation
+export DARSHAN_NAMEMEM=1000                       # 1 GB of memory allowed for Darshan record names
 export DARSHAN_ENABLE_NONMPI=1                    # Enable Darshan for non-MPI applications (Python)
+if [ "$DARSHAN_DXT" -eq 1 ]; then
+    export DXT_ENABLE_IO_TRACE=1
+    export DARSHAN_MOD_DISABLE="LUSTRE" # Disable Lustre module for Darshan dxt parser
+fi
 
 # Modules setup (for lab machines)
 module load Intel-oneAPI-HPC-Toolkit/mpi/latest || true
@@ -102,9 +107,6 @@ EOF
         fi
     # darshan
     elif [ "$TRACING_TOOL" == "darshan" ]; then
-        if [ "$DARSHAN_DXT" -eq 1 ]; then
-            export DXT_ENABLE_IO_TRACE=1
-        fi
         trace_cmd="env LD_PRELOAD=${DARSHAN_LIBPATH}"
     fi
 fi
