@@ -9,7 +9,7 @@ download_data:
   ai4boundaries_split_table: "ai4boundaries_ftp_urls_sentinel2_split.csv"
   dl_rate_limit: 5
   dl_retry_limit: 3
-  fraction_download: 0.05
+  fraction_download: 1
 
 create_eopatches:
   # no modifiable parameters
