@@ -20,7 +20,7 @@ NSIGHT_LOGDIR="${PROJECT_DIR}/niva/nsight_logs"
 ENABLE_TRACING=1
 
 # Darshan DXT (Darshan eXtended Tracing) generates more detailed I/O traces
-DARSHAN_DXT=0
+DARSHAN_DXT=1
 
 # Nsight NVTX (NVIDIA Tools Extension) enables profiling with NVTX annotations
 # Sampled batch training steps from the Python script will be captured
