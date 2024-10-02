@@ -394,8 +394,17 @@ def training_main(
         iterations_per_epoch: int,
         batch_size: int):
     """
-    Trains a model using k-fold cross-validation, and performs evaluation on the left-out fold.
-    At the end, an average model is created and evaluated on all folds.
+    Trains a model using the train and validation datasets and performs evaluation on the 
+    testing dataset.
+    Generates the following files and directories:
+    - hyperparameters.json: The hyperparameters used for training.
+    - model_cfg.json: The configuration of the model.
+    - evaluation.json: The evaluation results.
+    - exec_info.json: Model size and training duration.
+    - epoch_data.csv: Performance metrics for each epoch.
+    - batch_data.csv: Performance metrics for each batch.
+    - /logs: TensorBoard logs.
+    - /checkpoints: Model checkpoints.
 
     Args:
         strategy (tf.distribute.Strategy): The strategy for distributed training.
@@ -444,6 +453,9 @@ def training_main(
         if USE_NPZ:
             dataset_path = os.path.join(NPZ_FOLDER, fold)
             dataset = load_and_process_npz(dataset_path, batch_size, fold)
+            if fold == 'train':
+                num_batches = get_dataset_size(dataset, img_count=False)
+                iterations_per_epoch = num_batches
         else:
             dataset_path = os.path.join(DATASET_FOLDER, fold)
             dataset = load_and_process_dataset(dataset_path, batch_size)
@@ -519,22 +531,22 @@ def training_main(
             f'\tEvaluation results saved to {model_folder}/evaluation.json')
 
         # Registering fold configuration and training duration
-        fold_duration = init_duration + fitting_duration + testing_duration
+        total_duration = init_duration + fitting_duration + testing_duration
         model_size = callbacks[-1].model_size
         LOGGER.info(f'\n'
                     f'Model init duration: {init_duration} seconds \n'
                     f'Model fitting duration: {fitting_duration} seconds \n'
                     f'Model testing duration: {testing_duration} seconds \n')
-        fold_infos = {
+        exec_infos = {
             'model_size_gb': model_size,
-            'fold_duration': fold_duration,
+            'total_duration': total_duration,
             'init_duration': init_duration,
             'fitting_duration': fitting_duration,
             'testing_duration': testing_duration
         }
-        fold_data_path = os.path.join(model_folder, 'fold_infos.json')
-        with open(fold_data_path, 'w') as jfile:
-            json.dump(fold_infos, jfile, indent=4)
+        exec_info_path = os.path.join(model_folder, 'exec_info.json')
+        with open(exec_info_path, 'w') as jfile:
+            json.dump(exec_infos, jfile, indent=4)
 
     # Save training duration
     train_full_end_time = time.time()
