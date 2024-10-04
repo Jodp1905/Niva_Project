@@ -33,7 +33,7 @@ click-plugins==1.1.1
 cligj==0.7.2
 cloudpickle==3.0.0
 cycler==0.11.0
-dask==2024.7.0
+dask==2023.5.0
 dataclasses==0.6
 dataclasses-json==0.5.14
 debugpy==1.6.7
