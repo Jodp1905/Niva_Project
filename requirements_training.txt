@@ -106,7 +106,7 @@ matplotlib==3.5.3
 matplotlib-inline==0.1.6
 mdurl==0.1.2
 mistune==3.0.1
-ml-dtypes==0.4.0
+ml-dtypes==0.2.0
 multidict==6.1.0
 munch==4.0.0
 mypy-extensions==1.0.0
@@ -120,8 +120,8 @@ netCDF4==1.7.1.post1
 networkx==2.6.3
 notebook==6.5.5
 notebook_shim==0.2.3
-numba==0.60.0
-numpy==1.26.4
+numba==0.58.1
+numpy==1.24.4
 nvtx==0.2.10
 oauthlib==3.2.2
 opencv-contrib-python-headless==4.8.0.74
@@ -129,10 +129,10 @@ opt-einsum==3.3.0
 optree==0.12.1
 overrides==7.7.0
 packaging==23.1
-pandas==2.2.2
+pandas==2.0.3
 pandocfilters==1.5.0
 parso==0.8.3
-partd==1.4.2
+partd==1.4.1
 pathlib==1.0.1
 pathtools==0.1.2
 pexpect==4.8.0
@@ -155,7 +155,7 @@ pydot==1.4.2
 Pygments==2.15.1
 pyparsing==3.1.1
 pyperclip==1.9.0
-pyproj==3.6.1
+pyproj==3.5.0
 pyproject_hooks==1.1.0
 pyrsistent==0.19.3
 python-dateutil==2.8.2
@@ -175,7 +175,7 @@ s2cloudless==1.5.0
 s3transfer==0.6.1
 scikit-image==0.19.3
 scikit-learn==1.0.2
-scipy==1.14.0
+scipy==1.10.1
 seaborn==0.12.2
 Send2Trash==1.8.2
 sentinelhub==3.4.4
@@ -220,6 +220,6 @@ webencodings==0.5.1
 websocket-client==1.6.1
 Werkzeug==2.2.3
 wrapt==1.15.0
-xarray==2024.9.0
+xarray==2023.1.0
 yarl==1.11.1
 zipp==3.15.0
