@@ -95,7 +95,7 @@ Keras-Preprocessing==1.1.2
 kiwisolver==1.4.4
 libclang==16.0.6
 lightgbm==4.0.0
-llvmlite==0.43.0
+llvmlite==0.41.1
 locket==1.0.0
 lxml==4.9.3
 Markdown==3.4.4
