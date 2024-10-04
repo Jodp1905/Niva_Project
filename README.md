@@ -4,7 +4,7 @@ Field delineation using the Resunet-a model.
 
 ## About The Project
 
-This projects stems from the sentine-hub [field delineation project](https://github.com/sentinel-hub/field-delineation).
+This projects is based on the sentine-hub [field delineation project](https://github.com/sentinel-hub/field-delineation).
 
 ## Getting Started
 
@@ -60,6 +60,29 @@ the `psycopg2` package
   ```
 
 * to install from source, see <https://www.postgresql.org/docs/current/installation.html>
+
+#### To use profiling tools
+
+The project comes with a script allowing the use of the [Darshan I/O profiler](https://docs.nersc.gov/tools/performance/darshan/) or the [Nsight system performance analysis tool](https://developer.nvidia.com/nsight-systems) during training and data preprocessing. Both should be installed to generate traces.
+
+Both Darshan and Nsight comes bundled with tools separated into host and target sections:
+
+* target tools should be installed on the compute node executing the training program and is responsible for generating raw traces that are not directly readable.
+* host tools should be installed on your personnal workstation (with a screen) and are used to visualize and analyze tracing results.
+
+Thus, if you work in a HPC environment, Darshan and Nsight should be installed on the system you use for computations and on the one you use for analysis.
+
+* Nsight can be downloaded from [here](https://developer.nvidia.com/nsight-systems/get-started)
+  
+  Extensive documentation: [Get Started With Nsight Systems](https://developer.nvidia.com/nsight-systems/get-started)
+
+* Darshan can be downloaded from [here](https://www.mcs.anl.gov/research/projects/darshan/download/)
+  
+  See [Darshan runtime installation and usage](https://www.mcs.anl.gov/research/projects/darshan/docs/darshan-runtime.html) to install darshan-runtime on target computer.
+
+  See [Darshan-util installation and usage](https://www.mcs.anl.gov/research/projects/darshan/docs/darshan-util.html) to install darshan-utils on host computer.
+
+  The python Darshan package is the most convenient way to create summaries from binary trace files. It is already included in the virtual environnment set up at the next step.
 
 ### Installation
 
@@ -224,9 +247,66 @@ cd ./src/training
 python3 main_analyze.py <training-name>
 ```
 
-#### 4. Inference
+#### 4. Tracing
 
-TODO inference guide
+**Generating traces**
+
+You will first have to set the following parameters in `tracing_wrapper.sh` under `/script`:
+
+* PYTHON_VENV_PATH: The path to the root folder of your python environment used to run training.
+* DARSHAN_LIBPATH: Path to `libdarshan.so`, should be under `path/to/darshan-runtime-install/lib/`.
+* NSIGHT_LOGDIR: set tracefile output directory for nsight traces.
+
+**Note**: The Darshan trace files will be saved under the path set upon installing darshan-runtime, use `darshan-config --log-path` to view it.
+
+* DARSHAN_DXT: Set to 1 to enable [Darshan eXtended Tracing](https://docs.nersc.gov/tools/performance/darshan/dxt/), which generates more detailed I/O traces including a per file summary of all I/O operations.
+* NSIGHT_NVTX: Training specific option. Set to 1 to enable profiling of samples of training batches instead of the entire training execution.
+Note that `nsight_batch_profiling` also needs to be enabled in yaml configuration file.
+* NSIGHT_STORAGE_METRICS: Set to 1 to enable using the storage_metrics nsight plugin, which should be included in you nsight distribution.
+* LUSTRE_LLITE_DIR: Used with NSIGHT_STORAGE_METRICS=1, path to the lustre LLITE directory for capturing Lustre I/O metrics.
+* NSIGHT_PYTHON_SAMPLING:  Set to 1 to enable nsight collection of Python backtrace sampling events. Overhead can be high
+
+Once set, use the script to generate darshan or nsight reports of the training process:
+
+``` sh
+./tracing_wrapper.sh <darshan/nsight> ./run_training.sh 
+```
+
+Note that, as a wrapper, it can be user with any command/binary/script.
+You can therefore use it directly with the python interpreter:
+
+``` sh
+./tracing_wrapper.sh <darshan/nsight> python3 ./../src/training/training.py
+```
+
+**Visualizing traces** 
+
+Once the wrapped program has terminated, darshan (.darshan) or Nsight (.nsys-rep) files are created under the default log path for darshan or the one you set in the script parameters for Nsight. You may have to download them on your host machine to use the visualization tools.
+
+You can use the following:
+
+* Darshan:
+  You can firstly use the darshan python package to create a job summary with heatmaps and I/O metrics for all enable darshan modules:
+  
+  ``` sh
+  python3 -m darshan summary ./my_darshan_trace_file.darshan
+  ```
+
+  This will result in the creation of an html file, that you can view on a local live server.
+
+  If you enabled DxT traces, you can use the dxt-parser command from darshan-utils to create a detailled report of timestamped I/O accesses for all files:
+  
+  ``` sh
+  darshan-parser ./my_darshan_trace_file.darshan
+  ```
+
+* Nsight:
+  
+  Visualizing Nsight traces amounts to using the nsys-ui command:
+
+  ``` sh
+  nsys-ui ./my_nsys_trace_file.nsys-rep
+  ```
 
 ## Implementation details
 
@@ -235,10 +315,6 @@ TODO inference guide
 Preprocessing workflow diagram is available under `/visuals` :
 
 ![Preprocessing Workflow](visuals/data_preprocess_workflow.png)
-
-### Training implementation
-
-TODO add training diagram
 
 ### Inference implementation
 
