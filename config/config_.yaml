@@ -65,7 +65,8 @@ training:
 
 # INFERENCE
 niva_project_data_root_inf: "inference" # TO SET
-TILE_ID: "S2B_31TEN_20230420_0_L2A"  # Paste your own tile id to process
+# TILE_ID: "S2A_30UWU_20230302_0_L2A"  # Tile in région Bretagne
+TILE_ID: "S2B_31TEN_20230420_0_L2A"  # Paste your own tile id to process (région Bourgogne-Franche-Comté)
 
 # tile download configuration
 download_tile:
@@ -119,3 +120,9 @@ postprocess_config:
   smallest_area: 2
   biggest_area: 10000000
   version: 1.6
+
+download_cadastre:
+  sub_name: "RPG_2-2__SHP_LAMB93_R27_2023-01-01"  # (région Bourgogne-Franche-Comté)
+  sim_tolerance: 5
+  chunk_size: 20480
+  flag_download: True
