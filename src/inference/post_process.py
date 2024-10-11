@@ -21,23 +21,16 @@ CONFIG = load_config()
 NIVA_PROJECT_DATA_ROOT = CONFIG['niva_project_data_root']
 POSTPROCESS_CONFIG = CONFIG['postprocess_config']
 
-# Inferred constants
-GPKG_PATH = os.path.join(NIVA_PROJECT_DATA_ROOT,
-                         "inference", "contours", "merged_0_32631.gpkg")
-
 
 def final_post_process(config):
     # Post-process (simplify, filter small polygons, multipolygon ?, save to geojson)
     path = config["gpkg_path"]
     LOGGER.info(f'Final post-processing for {path} file')
     vectors = gpd.read_file(path)
-    new_vectors = vectors.geometry.simplify(
-        tolerance=config["simplify_tolerance"], preserve_topology=True)
+    new_vectors = vectors.geometry.simplify(tolerance=config["simplify_tolerance"], preserve_topology=True)
     # filter small, big polygons
-    new_vectors = new_vectors[new_vectors.geometry.area >
-                              config["smallest_area"]]
-    new_vectors = new_vectors[new_vectors.geometry.area <
-                              config["biggest_area"]]
+    new_vectors = new_vectors[new_vectors.geometry.area > config["smallest_area"]]
+    new_vectors = new_vectors[new_vectors.geometry.area < config["biggest_area"]]
 
     folder, file = os.path.split(path)
     os.makedirs(os.path.join(folder, f'v_{config["version"]}'), exist_ok=True)
@@ -47,11 +40,14 @@ def final_post_process(config):
                                      f'{os.path.splitext(file)[0]}.geojson')
     new_vectors.to_file(path_json,
                         driver='GeoJSON')
+    new_vectors.to_file(os.path.join(folder, f'v_{config["version"]}',
+                                     f'{os.path.splitext(file)[0]}.gpkg'),
+                        )  # also save to geopackage that can be partially loaded
     LOGGER.info(f"Saved GeoJson file to {path_json}")
     return new_vectors
 
 
-def main_postprocess():
-    POSTPROCESS_CONFIG["gpkg_path"] = GPKG_PATH
+def main_postprocess(GPKG_FILE_PATH):
+    POSTPROCESS_CONFIG["gpkg_path"] = GPKG_FILE_PATH
     final_post_process(POSTPROCESS_CONFIG)
     LOGGER.info("Post-processing finished")

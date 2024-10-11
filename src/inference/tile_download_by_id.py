@@ -27,14 +27,11 @@ from niva_utils.config_loader import load_config  # noqa: E402
 CONFIG = load_config()
 
 # Constants
-NIVA_PROJECT_DATA_ROOT = CONFIG['niva_project_data_root']
+TILE_FOLDER = CONFIG['niva_project_data_root_inf']
 XARRAY_CHUNK_SIZE = CONFIG['download_tile']['xarray_chunk_size']
 TILE_ID = CONFIG['download_tile']['tile_id']  # S2B_31TEN_20230420_0_L2A,
 # S2A_31UGR_20240406_0_L2A (cloud - 49.947610	vegetation - 44.080243, Luxembourg)
 # S2A_30UWU_20230302_0_L2A France Britany
-
-# Inferred constants
-TILE_FOLDER = Path(f"{NIVA_PROJECT_DATA_ROOT}/inference/")
 
 api_url = "https://earth-search.aws.element84.com/v1"
 collection = "sentinel-2-l2a"

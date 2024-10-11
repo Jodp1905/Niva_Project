@@ -28,15 +28,7 @@ from niva_utils.config_loader import load_config  # noqa: E402
 CONFIG = load_config()
 
 # Constants
-NIVA_PROJECT_DATA_ROOT = CONFIG['niva_project_data_root']
 PREDICTION_CONFIG = CONFIG['prediction_config']
-MODEL_PATH = PREDICTION_CONFIG["model_path"]
-
-# Inferred constants
-EOPATCHES_FOLDER = Path(f"{NIVA_PROJECT_DATA_ROOT}/inference/eopatches")
-INFERENCE_FOLDER = Path(f"{NIVA_PROJECT_DATA_ROOT}/inference")
-MODEL_CFG_PATH = Path(f"{MODEL_PATH}/model_cfg.json")
-CHKPT_FOLDER = Path(f"{MODEL_PATH}/checkpoints")
 
 
 def visualize_predictions(eop, tidx=0, row_s=0, row_d=256, col_s=0,
@@ -79,10 +71,10 @@ def visualize_predictions(eop, tidx=0, row_s=0, row_d=256, col_s=0,
     axs[2].set_title('RGB bands')
 
     # Save the figure
-    fig_path = os.path.join(INFERENCE_FOLDER, "prediction_random_eop.png")
-    plt.savefig(fig_path)
-    LOGGER.info(
-        f"Saved prediction visualization for an eopatch at {fig_path}")
+    # fig_path = os.path.join(INFERENCE_FOLDER, "prediction_random_eop.png")
+    # plt.savefig(fig_path)
+    # LOGGER.info(
+    #     f"Saved prediction visualization for an eopatch at {fig_path}")
 
 
 def save_predictions(eop_path: str,
@@ -133,9 +125,7 @@ def save_predictions(eop_path: str,
     return eop
 
 
-def load_model(model_cfg_path: str,
-               chkpt_folder: str,
-               input_shape: Tuple[int, int, int] = (256, 256, 4)) -> ResUnetA:
+def load_model(model_cfg_path, chkpt_folder, input_shape=(256, 256, 4)):
     # https://github.com/sentinel-hub/field-delineation/blob/main/fd/prediction.py
     input_shape = dict(features=[None, *input_shape])
     with open(model_cfg_path, 'r') as jfile:
@@ -145,10 +135,7 @@ def load_model(model_cfg_path: str,
     model = ResUnetA(model_cfg)
     model.build(input_shape)
     model.net.compile()
-    checkpoint = tf.train.Checkpoint(model=model.net)
-    checkpoint_path = tf.train.latest_checkpoint(chkpt_folder)
-    status = checkpoint.restore(checkpoint_path).expect_partial()
-    # status.assert_existing_objects_matched()
+    model.net.load_weights(f'{chkpt_folder}/model.ckpt')
     return model
 
 
@@ -182,7 +169,7 @@ def run_predict(prediction_config: dict) -> List[EOPatch]:
     return results
 
 
-def main_prediction():
+def main_prediction(EOPATCHES_FOLDER):
     """
     Main function to perform predictions using a pre-trained model.
 
@@ -195,24 +182,16 @@ def main_prediction():
     file, updates the SPLIT_CONFIG dictionary with necessary paths, and then
     calls the run_predict function to perform the predictions.
     """
-    if MODEL_PATH is None:
-        raise ValueError(
-            "Model path is not defined in the configuration yaml file.")
-    if not os.path.exists(MODEL_PATH):
-        raise FileNotFoundError(
-            f"Model folder {MODEL_PATH} does not exist.")
-    if not os.path.exists(MODEL_CFG_PATH):
-        raise FileNotFoundError(
-            f"Model config file {MODEL_CFG_PATH} not found.")
-    if not os.path.exists(CHKPT_FOLDER):
-        raise FileNotFoundError(
-            f"Model checkpoint folder {CHKPT_FOLDER} not found.")
-    PREDICTION_CONFIG["model_cfg_path"] = MODEL_CFG_PATH
     PREDICTION_CONFIG["eopatches_folder"] = EOPATCHES_FOLDER
-    PREDICTION_CONFIG["chkpt_folder"] = CHKPT_FOLDER
     results = run_predict(PREDICTION_CONFIG)
     LOGGER.info(f"Predictions for {len(results)} EOPatches completed.")
 
 
 if __name__ == "__main__":
-    main_prediction()
+    PROJECT_DATA_ROOT = CONFIG['niva_project_data_root_inf']
+    TILE_ID = CONFIG['TILE_ID']
+    # Inferred constants
+    PROJECT_DATA_ROOT = os.path.join(PROJECT_DATA_ROOT, TILE_ID)
+    # the folders that will be created during the pipeline run
+    EOPATCHES_FOLDER = os.path.join(PROJECT_DATA_ROOT, "eopatches")
+    main_prediction(EOPATCHES_FOLDER)

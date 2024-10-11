@@ -1,11 +1,11 @@
 import sys
 import os
-from datetime import timezone
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from datetime import timezone, datetime
 import xarray as xr
 from pathlib import Path
 import numpy as np
-import pandas as pd
+import itertools as it
+from typing import Any, Iterable, cast
 
 
 # TODO delete dependency on sentinelhub
@@ -16,7 +16,7 @@ from sentinelhub.geometry import CRS
 import fs.move  # required by eopatch.save
 from eolearn.core import EOPatch, FeatureType
 from eolearn.core import OverwritePermission
-
+from tqdm import tqdm
 
 # Add the src directory to the path
 src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -31,53 +31,79 @@ from niva_utils.config_loader import load_config  # noqa: E402
 CONFIG = load_config()
 
 # Constants
-NIVA_PROJECT_DATA_ROOT = CONFIG['niva_project_data_root']
-TILE_NAME = CONFIG['download_tile']['tile_name']
 SPLIT_CONFIG = CONFIG['split_config']
 
-# Inferred constants
-TILE_PATH = Path(f"{NIVA_PROJECT_DATA_ROOT}/inference/tile/{TILE_NAME}")
-EOPATCHES_FOLDER = Path(f"{NIVA_PROJECT_DATA_ROOT}/inference/eopatches")
+def check_good_patch(patch, bad_percentage=0.70, vgt_percentage=0.1,
+                     cld_percentage=0.15):
+    # https://custom-scripts.sentinel-hub.com/custom-scripts/sentinel-2/scene-classification/
+    shape_all = patch.scl.shape[-1] * patch.scl.shape[-2]
+    cld_data_count, bad_data_count = 0, 0
+    cld_data_count += (patch.scl == 9).sum()  # Cloud high probability
+    bad_data_count += cld_data_count.values
+    bad_data_count += (patch.scl == 11).sum()  # Snow or ice
+    bad_data_count += (patch.scl == 0).sum()  # No Data (Missing data)
+    bad_data_count += (patch.scl == 1).sum()  # Saturated or defective pixel
+    bad_data_count += (patch.scl == 5).sum()  # Not-vegetated
+    bad_data_count += (patch.scl == 6).sum()  # Water
 
+    # cld_data_count += (patch.scl == 3).sum()  # Cloud shadows
+    cld_data_count += (patch.scl == 8).sum()  # Cloud medium probability
+    # cld_data_count += (patch.scl == 10).sum()  # Thin cirrus
+    # vegetation (possible crop fields). Problem - could be under the clouds / cloud shadows ... -> another class
+    vegetation_prec = (patch.scl == 4).sum().values / shape_all  # Vegetation
+    curr_bad_percentage = bad_data_count.values / shape_all
+    curr_cld_percentage = cld_data_count.values / shape_all
+    flag_good = (curr_cld_percentage < cld_percentage) & ((curr_bad_percentage < bad_percentage) | (vegetation_prec > vgt_percentage))
+    # True - good patch, False - bad
+    return flag_good
 
 def split_save2eopatch(config: dict) -> None:
     # decode all needed to load CRS
     LOGGER.info(f"Loading tile from {config['tile_path']}")
-    ds: xr.Dataset = xr.open_dataset(config["tile_path"], decode_coords="all")
+    dataset: xr.Dataset = xr.open_dataset(config["tile_path"], decode_coords="all")
 
     # CRS unit check
-    dataset_crs = ds.rio.crs
-    if dataset_crs is None:
-        raise ValueError(f"No CRS found in the dataset {config['tile_path']}")
-    crs_string = dataset_crs.to_string()
-    pyproj_crs = CRS(crs_string).pyproj_crs()
-    axis_info = pyproj_crs.axis_info
-    if len(axis_info) == 0:
-        raise ValueError(
-            f"CRS axis information is missing for CRS: {crs_string}")
-    unit_name = axis_info[0].unit_name
-    if unit_name != 'metre':
-        raise ValueError(
-            f"Expected CRS to have 'metre' as the unit for the first axis, but got {unit_name}")
+    assert (
+            CRS(dataset.rio.crs.to_string()).pyproj_crs().axis_info[0].unit_name == "metre"
+    ), "The resulting CRS should have axis units in metres."
 
-    # TODO overlap should be somewhere
-    # TODO padding from all 4 sides of the tile
+    W, H = len(dataset.x), len(dataset.y)
+    begin_x, begin_y, width, height, overlap = (config["begin_x"], config["begin_y"],
+                                                config["width"], config["height"],
+                                                config["overlap"])
+
+    x_rng = range(begin_x, W - width + 1, width - overlap)
+    y_rng = range(begin_y, H - height + 1, height - overlap)
+
+    xy_index = list(it.product(x_rng, y_rng))  # small error x and x
+
+    if (W - width) % (width - overlap) != 0:
+        xy_index.extend((W - width, y) for y in y_rng)
+
+    if (H - height) % (height - overlap) != 0:
+        xy_index.extend((x, H - height) for x in x_rng)
+
+    # bottom right corner if needed
+    if (W - width) % (width - overlap) != 0 and (H - height) % (height - overlap) != 0:
+        xy_index.append((W - width, H - height))
+
+    num_bad = 0
     num_split = 0
-    for ind_x in range(config["begin_x"], len(ds.x) - config["width"] + 1, config["width"]):
-        for ind_y in range(config["begin_y"], len(ds.y) - config["height"] + 1, config["height"]):
+    for ind_x, ind_y in tqdm(xy_index,
+                             desc="Splitting and saving to EOPatch"):
+        patch = dataset.isel(x=slice(ind_x, ind_x + config["width"]),
+                        y=slice(ind_y, ind_y + config["height"]))
+        if check_good_patch(patch, config["bad_percentage"],
+                            config["vgt_percentage"],
+                            config["cld_percentage"]):
             num_split += 1
-            patch = ds.isel(x=slice(ind_x, ind_x + config["width"]),
-                            y=slice(ind_y, ind_y + config["height"]))
-            LOGGER.debug(f"Creating EOPatch {num_split}:\n"
-                         f"\tx[{ind_x}:{ind_x + config['width']}]\n"
-                         f"\ty[{ind_y}:{ind_y + config['height']}]")
-            create_eopatch_ds(
-                patch, config["eopatches_folder"], image_id=f"x_{ind_x}_y_{ind_y}_{num_split}")
-
-            if config["num_split"] != -1 and num_split == config["num_split"]:
-                break
+            create_eopatch_ds(patch, config["eopatches_folder"],
+                              image_id=f"x_{ind_x}_y_{ind_y}_{num_split}")
+        else:
+            num_bad += 1
         if config["num_split"] != -1 and num_split == config["num_split"]:
             break
+    LOGGER.info(f"Number of bad patches = {num_bad} from all {len(xy_index)}")
     LOGGER.info(f"Created {num_split} EOPatches")
 
 
@@ -86,12 +112,16 @@ def create_eopatch_ds(ds: xr.Dataset,
                       image_id: str = '0') -> EOPatch:
     # according to https://github.com/Jodp1905/Niva_Project/blob/main/scripts/eopatches_for_sampling.py#L61
     # Create a new EOPatch
-    eopatch = EOPatch()
-    # Add time data to EOPatch
-    time_data = ds['time'].values
-    transformed_timestamps = [pd.to_datetime(
-        t).tz_localize(timezone.utc) for t in time_data]
-    eopatch.timestamp = transformed_timestamps
+    eopatch = EOPatch(
+        bbox=BBox(ds.rio.bounds(), CRS(ds.rio.crs.to_string())),
+        timestamp=[
+            dt.astimezone(timezone.utc)
+            for dt in cast(
+                list[datetime],
+                ds["time"].values.astype("datetime64[ms]").tolist(),  # type: ignore
+            )
+        ],
+    )
 
     # Initialize a dictionary to group bands and other data
     data_dict = {
@@ -103,8 +133,8 @@ def create_eopatch_ds(ds: xr.Dataset,
         if var != 'spatial_ref':
             arr: xr.DataArray = ds[var]
             data: np.ndarray = arr.values
-            LOGGER.debug(f"Variable: {var}\n\tshape: {data.shape}\n"
-                         f"\tdtype: {data.dtype}\n\tdata format: {type(data)}\n")
+            # LOGGER.debug(f"Variable: {var}\n\tshape: {data.shape}\n"
+            #              f"\tdtype: {data.dtype}\n\tdata format: {type(data)}\n")
             # Eopatch data should have 4 dimensions: time, height, width, channels
             if data.ndim == 2:
                 # Add time and channel dimensions
@@ -131,9 +161,7 @@ def create_eopatch_ds(ds: xr.Dataset,
     if data_dict['CLP'] is not None:
         eopatch.add_feature(FeatureType.DATA, 'CLP', data_dict['CLP'])
 
-    # Add bbox to EOPatch
-    bbox = BBox(ds.rio.bounds(), CRS(ds.rio.crs.to_string()))
-    eopatch.bbox = bbox
+
     # Create and save unique EOPatch
     eopatch_name = f'eopatch_{image_id}'
     eopatch_path = os.path.join(output_eopatch_dir, eopatch_name)
@@ -143,12 +171,19 @@ def create_eopatch_ds(ds: xr.Dataset,
     return eopatch
 
 
-def main_subtiles_creation():
-    EOPATCHES_FOLDER.mkdir(parents=True, exist_ok=True)
+def main_split_save2eopatch(TILE_PATH, EOPATCHES_FOLDER):
     SPLIT_CONFIG["tile_path"] = TILE_PATH
     SPLIT_CONFIG["eopatches_folder"] = EOPATCHES_FOLDER
     split_save2eopatch(SPLIT_CONFIG)
 
 
 if __name__ == "__main__":
-    main_subtiles_creation()
+    PROJECT_DATA_ROOT = CONFIG['niva_project_data_root_inf']
+    TILE_ID = CONFIG['TILE_ID']
+    # Inferred constants
+    PROJECT_DATA_ROOT = os.path.join(PROJECT_DATA_ROOT, TILE_ID)
+    TILE_PATH = os.path.join(PROJECT_DATA_ROOT, "tile",
+                             f"{TILE_ID}.nc")  # here should be the tile saved during download
+    # the folders that will be created during the pipeline run
+    EOPATCHES_FOLDER = os.path.join(PROJECT_DATA_ROOT, "eopatches")
+    main_split_save2eopatch(TILE_PATH, EOPATCHES_FOLDER)

@@ -1,9 +1,8 @@
-from create_subtiles import main_subtiles_creation
+from create_subtiles import main_split_save2eopatch
 from predict import main_prediction
 from combine import main_combine
 from vectorisation import main_vectorisation
 from post_process import main_postprocess
-from pathlib import Path
 import os
 import sys
 from time import time
@@ -21,38 +20,37 @@ from niva_utils.config_loader import load_config  # noqa: E402
 CONFIG = load_config()
 
 # Constants
-NIVA_PROJECT_DATA_ROOT = CONFIG['niva_project_data_root']
-MODEL_FOLDER = Path("checkpoints")
-MODEL_CONFIG_PATH = Path("model_cfg.json")  # folder with model's config file
+PROJECT_DATA_ROOT = CONFIG['niva_project_data_root_inf']
+TILE_ID = CONFIG['TILE_ID']
 
 # Inferred constants
-TILE_PATH = Path(f"{NIVA_PROJECT_DATA_ROOT}/inference/tile/input_tile.nc")
-EOPATCHES_FOLDER = Path(f"{NIVA_PROJECT_DATA_ROOT}/inference/eopatches")
-RASTER_RESULTS_FOLDER = Path(f"{NIVA_PROJECT_DATA_ROOT}/inference/tiffs")
-PREDICTIONS_DIR = Path(f"{NIVA_PROJECT_DATA_ROOT}/predictions")
-CONTOURS_DIR = Path(f"{NIVA_PROJECT_DATA_ROOT}/contours")
-PROCESS_POOL_WORKERS = os.cpu_count()
+PROJECT_DATA_ROOT = os.path.join(PROJECT_DATA_ROOT, TILE_ID)
+TILE_PATH = os.path.join(PROJECT_DATA_ROOT, "tile", f"{TILE_ID}.nc")  # here should be the tile saved during download
+# the folders that will be created during the pipeline run
+EOPATCHES_FOLDER = os.path.join(PROJECT_DATA_ROOT, "eopatches")
+PREDICTIONS_DIR = os.path.join(PROJECT_DATA_ROOT, "predictions")
+CONTOURS_DIR = os.path.join(PROJECT_DATA_ROOT, "contours")
+GPKG_FILE_PATH = os.path.join(CONTOURS_DIR, f"{TILE_ID}.gpkg")
+
 
 if __name__ == "__main__":
     durations = []
 
-    # TODO taking into consideration vegetation, missing / cloudy data, split with overlap, split with padding
-    # split tile to sub-tiles and convert to EOPatch
+    # split tile to sub-tiles filter and convert to EOPatch
     start_time = time()
-    main_subtiles_creation()
+    main_split_save2eopatch(TILE_PATH, EOPATCHES_FOLDER)
     end_time = time()
     durations.append(('convert_to_eopatches', end_time - start_time))
 
     # Predict by ResUnet-a model on EOPatches.
-    # TODO GPU here with batch inferencing, ONNX converted ?
     start_time = time()
-    main_prediction()
+    main_prediction(EOPATCHES_FOLDER)
     end_time = time()
     durations.append(('predict_all_eopatches', end_time - start_time))
 
     # Combine predicted boundary and extent of EOPatch and save to tiff
     start_time = time()
-    main_combine()
+    main_combine(EOPATCHES_FOLDER, PREDICTIONS_DIR)
     end_time = time()
     durations.append(('combine_prediction_output', end_time - start_time))
 
@@ -60,15 +58,14 @@ if __name__ == "__main__":
     # TODO check if gdal operations supports GPU
     # The longest step
     start_time = time()
-    main_vectorisation()
+    main_vectorisation(GPKG_FILE_PATH, PROJECT_DATA_ROOT, PREDICTIONS_DIR, CONTOURS_DIR)
     end_time = time()
     durations.append(('vectorization', end_time - start_time))
 
     # Final Post-process of GeoPackage vector data generate from previous step
     # (simplify, filter small/large polygons, save to geojson)
     start_time = time()
-    # Created 92,529 records from one tile - 100 sub-tiles (without padding)
-    main_postprocess()
+    main_postprocess(GPKG_FILE_PATH)
     end_time = time()
     durations.append(('final_post_process', end_time - start_time))
 

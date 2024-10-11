@@ -45,15 +45,7 @@ from niva_utils.config_loader import load_config  # noqa: E402
 CONFIG = load_config()
 
 # Constants
-NIVA_PROJECT_DATA_ROOT = CONFIG['niva_project_data_root']
 VECTORIZE_CONFIG = CONFIG['vectorize_config']
-
-# Infered constants
-TIFFS_FOLDER = os.path.join(NIVA_PROJECT_DATA_ROOT, 'inference/tiffs')
-WEIGHT_FILE = os.path.join(NIVA_PROJECT_DATA_ROOT, 'inference/weights.tiff')
-PREDICTIONS_DIR = os.path.join(NIVA_PROJECT_DATA_ROOT, 'inference/predictions')
-CONTOURS_DIR = os.path.join(NIVA_PROJECT_DATA_ROOT, 'inference/contours')
-MAX_WORKERS = os.cpu_count()
 
 
 def multiprocess(process_fun: Callable, arguments: Iterable[Any],
@@ -79,9 +71,7 @@ def multiprocess(process_fun: Callable, arguments: Iterable[Any],
 
 @dataclass
 class VectorisationConfig:
-    tiffs_folder: str
-    # time_intervals: List[str]
-    # utms: List[str]
+    gpkg_path: str  # added new
     shape: Tuple[int, int]
     buffer: Tuple[int, int]
     weights_file: str
@@ -109,7 +99,7 @@ def average_function(no_data: Union[int, float] = 0, round_output: bool = False)
 import numpy as np
 
 def average(in_ar, out_ar, xoff, yoff, xsize, ysize, raster_xsize, raster_ysize, buf_radius, gt, **kwargs):
-    p, w = np.split(np.array(in_ar), 2, axis=0)
+    p, w = np.split(np.array(in_ar), 2, axis=0)  # shape of in_ar (2*num_splits, 384/116, 500)
     n_overlaps = np.sum(p!={no_data}, axis=0)
     w_sum = np.sum(w, axis=0, dtype=np.float32) 
     p_sum = np.sum(p, axis=0, dtype=np.float32) 
@@ -117,7 +107,7 @@ def average(in_ar, out_ar, xoff, yoff, xsize, ysize, raster_xsize, raster_ysize,
     out = np.where((n_overlaps>1) & (w_sum>0) , weighted/w_sum, p_sum/n_overlaps)
     {rounding}
     out_ar[:] = out
-    
+
 """
 
 
@@ -162,8 +152,15 @@ def write_vrt(files: List[str], weights_file: str, out_vrt: str, function: Optio
         function = average_function()
 
     # build a vrt from list of input files
-    gdal_str = f'gdalbuildvrt temp.vrt -b 1 {" ".join(files)}'
-    # above could be a problem of command line length in windows (limit 8,191) -> shorten the paths to ~100 files
+    # https://gdal.org/en/latest/programs/gdalbuildvrt.html
+    # gdal_str = f'gdalbuildvrt temp.vrt -b 1 {" ".join(files)}'
+    # overcoming the problem of command line length in windows (limit 8,191) -> save files to one file
+    folder, _ = os.path.split(out_vrt)
+    files_list_path = os.path.join(folder, "input_file_list.txt")
+    with open(files_list_path, "w") as file:
+        file.write("\n".join(files))
+
+    gdal_str = f'gdalbuildvrt temp.vrt -b 1 -input_file_list {files_list_path}'
     os.system(gdal_str)
 
     # fix the vrt
@@ -172,8 +169,7 @@ def write_vrt(files: List[str], weights_file: str, out_vrt: str, function: Optio
     rasterbandchildren = list(vrtrasterband)
     root.remove(vrtrasterband)
 
-    dict_attr = {'dataType': 'Float32', 'band': '1',
-                 'subClass': 'VRTDerivedRasterBand'}
+    dict_attr = {'dataType': 'Float32', 'band': '1', 'subClass': 'VRTDerivedRasterBand'}
     raster_band_tag = etree.SubElement(root, 'VRTRasterBand', dict_attr)
 
     # Add childern tags to derivedRasterBand tag
@@ -217,8 +213,10 @@ def run_contour(col: int, row: int, size: int, vrt_file: str, threshold: float =
     if skip_existing and os.path.exists(file):
         return file, True, 'Loaded existing file ...'
     try:
+        # https://gdal.org/en/latest/programs/gdal_translate.html
         gdal_str = f'gdal_translate --config GDAL_VRT_ENABLE_PYTHON YES -srcwin {col} {row} {size} {size} {vrt_file} {file}.tiff'
         os.system(gdal_str)
+        # https://gdal.org/en/latest/programs/gdal_contour.html
         gdal_str = f'gdal_contour -of gpkg {file}.tiff {contours_dir}/{file}.gpkg -i {threshold} -amin amin -amax amax -p'
         os.system(gdal_str)
         if cleanup:
@@ -275,7 +273,7 @@ def merge_intersecting(df1: gpd.GeoDataFrame, df2: gpd.GeoDataFrame) -> gpd.GeoD
 def concat_consecutive(merged: gpd.GeoDataFrame, previous: gpd.GeoDataFrame, current: gpd.GeoDataFrame,
                        current_offset: Tuple[int, int], overlap_size: Tuple[int, int] = (10, 500),
                        direction: Tuple[int, int] = (490, 0), transform=None) -> Tuple[gpd.GeoDataFrame,
-                                                                                       gpd.GeoDataFrame]:
+gpd.GeoDataFrame]:
     list_dfs = []
     if merged is not None:
         list_dfs = [merged]
@@ -288,15 +286,13 @@ def concat_consecutive(merged: gpd.GeoDataFrame, previous: gpd.GeoDataFrame, cur
 
     x, y = current_offset
     a, b = overlap_size
-    overlap_poly = Polygon.from_bounds(
-        *(transform * (x, y)), *(transform * (x + a, y + b)))
+    overlap_poly = Polygon.from_bounds(*(transform * (x, y)), *(transform * (x + a, y + b)))
 
     if len(previous) == 0:
         return merged, current
 
     if len(current) == 0:
-        merged = gpd.GeoDataFrame(
-            pd.concat([merged, previous]), crs=previous.crs)
+        merged = gpd.GeoDataFrame(pd.concat([merged, previous]), crs=previous.crs)
         return merged, gpd.GeoDataFrame(geometry=[], crs=merged.crs)
 
     previous_non, previous_int = split_intersecting(previous, overlap_poly)
@@ -306,14 +302,10 @@ def concat_consecutive(merged: gpd.GeoDataFrame, previous: gpd.GeoDataFrame, cur
         # check if intersecting "touches" the "right edge", if so, add it to current_non
         x = x + direction[0]
         y = y + direction[1]
-        overlap_poly_end = Polygon.from_bounds(
-            *(transform * (x, y)), *(transform * (x + a, y + b)))
-        intersecting_ok, intersecting_next = split_intersecting(
-            intersecting, overlap_poly_end)
-        merged = gpd.GeoDataFrame(
-            pd.concat(list_dfs + [previous_non, intersecting_ok]), crs=previous.crs)
-        intersecting_next = gpd.GeoDataFrame(
-            pd.concat([intersecting_next, current_non]), crs=previous.crs)
+        overlap_poly_end = Polygon.from_bounds(*(transform * (x, y)), *(transform * (x + a, y + b)))
+        intersecting_ok, intersecting_next = split_intersecting(intersecting, overlap_poly_end)
+        merged = gpd.GeoDataFrame(pd.concat(list_dfs + [previous_non, intersecting_ok]), crs=previous.crs)
+        intersecting_next = gpd.GeoDataFrame(pd.concat([intersecting_next, current_non]), crs=previous.crs)
         return merged, intersecting_next
 
     return gpd.GeoDataFrame(pd.concat(list_dfs + [previous_non]), crs=previous.crs), current_non
@@ -328,8 +320,8 @@ def _process_row(row: int, vrt_file: str, vrt_dim: Tuple, contours_dir: str = '.
     try:
         col = 0
         merged = None
-        prev_name, finished, exc = run_contour(
-            col, row, size, vrt_file, threshold, contours_dir, cleanup, skip_existing)
+        prev_name, finished, exc = run_contour(col, row, size, vrt_file, threshold, contours_dir, cleanup,
+                                               skip_existing)
         if not finished:
             return merged_file, finished, exc
         prev = unpack_contours(prev_name, threshold=threshold)
@@ -339,19 +331,17 @@ def _process_row(row: int, vrt_file: str, vrt_dim: Tuple, contours_dir: str = '.
         while col <= (vrt_dim[0] - size):
             col = col + size - buff
             offset = col, row
-            cur_name, finished, exc = run_contour(
-                col, row, size, vrt_file, threshold, contours_dir, cleanup, skip_existing)
+            cur_name, finished, exc = run_contour(col, row, size, vrt_file, threshold, contours_dir, cleanup,
+                                                  skip_existing)
             if not finished:
                 return merged_file, finished, exc
             cur = unpack_contours(cur_name, threshold=threshold)
-            merged, prev = concat_consecutive(
-                merged, prev, cur, offset, (buff, size), (size - buff, 0), transform)
+            merged, prev = concat_consecutive(merged, prev, cur, offset, (buff, size), (size - buff, 0), transform)
             if cleanup:
                 os.remove(cur_name)
         merged = gpd.GeoDataFrame(pd.concat([merged, prev]), crs=prev.crs)
 
-        # upgrade geopandas-1.0.1, to make version compatible
-        merged.to_file(merged_file, driver='GPKG')
+        merged.to_file(merged_file, driver='GPKG', index=False)  # upgrade geopandas-1.0.1, to make version compatible
         return merged_file, True, None
     except Exception as exc:
         return merged_file, False, exc
@@ -366,38 +356,13 @@ def merge_rows(rows: List[str], vrt_file: str, size: int = 500, buffer: int = 10
     merged = None
     prev_name = rows[0]
     prev = gpd.read_file(prev_name)
-    for ridx, cur_name in tqdm(enumerate(rows[1:], start=1), total=len(rows)-1):
+    for ridx, cur_name in tqdm(enumerate(rows[1:], start=1), total=len(rows) - 1):
         cur = gpd.read_file(cur_name)
         merged, prev = concat_consecutive(merged, prev, cur, (0, ridx * (size - buffer)), (vrt_dim[0], buffer),
                                           (0, size - buffer), transform)
     merged = gpd.GeoDataFrame(pd.concat([merged, prev]), crs=prev.crs)
 
     return merged
-
-
-def spatial_merge_contours(vrt_file: str, contours_dir: str = '.', size: int = 500, buffer: int = 10,
-                           threshold: float = 0.6, cleanup: bool = True, skip_existing: bool = True,
-                           rows_merging: bool = True, max_workers: int = 4) -> gpd.GeoDataFrame:
-    results = process_rows(vrt_file=vrt_file, contours_dir=contours_dir, size=size, buffer=buffer, threshold=threshold,
-                           cleanup=cleanup, skip_existing=skip_existing, max_workers=max_workers)
-
-    failed = [(file, excp) for file, finished, excp in results if not finished]
-    if len(failed):
-        LOGGER.warning('Some rows failed:')
-        LOGGER.warning('\n'.join([f'{file}: {excp}' for file, excp in failed]))
-        return None
-
-    if rows_merging:
-        rows = [file for file, _, _ in results]
-        merged = merge_rows(rows, vrt_file=vrt_file, size=size, buffer=buffer)
-
-        if cleanup:
-            for file in rows:
-                os.remove(file)
-
-        return merged
-
-    return None
 
 
 def process_rows(vrt_file: str, contours_dir: str = '.', size: int = 500, buffer: int = 10,
@@ -421,10 +386,13 @@ def process_rows(vrt_file: str, contours_dir: str = '.', size: int = 500, buffer
 def merging_rows(row_dict: dict, skip_existing: bool = True) -> str:
     """ merge row files into a single file per utm """
     start = time.time()
-    merged_contours_file = f'{row_dict["contours_dir"]}/merged_{row_dict["time_interval"]}_{row_dict["utm"]}.gpkg'
+    # merged_contours_file = f'{row_dict["contours_dir"]}/merged_{row_dict["time_interval"]}_{row_dict["utm"]}.gpkg'
+    merged_contours_file = row_dict['gpkg_path']
     if skip_existing and os.path.exists(merged_contours_file):
         return merged_contours_file
 
+    # add logger
+    LOGGER.info(f'Merging rows {row_dict["rows"]}')
     merged = merge_rows(rows=row_dict['rows'], vrt_file=row_dict['vrt_file'],
                         size=row_dict['chunk_size'], buffer=row_dict['chunk_overlap'])
     merged.to_file(merged_contours_file, driver='GPKG')
@@ -436,34 +404,10 @@ def merging_rows(row_dict: dict, skip_existing: bool = True) -> str:
 
 def run_vectorisation(config: VectorisationConfig) -> List[str]:
     """ Run vectorisation process on entire AOI for the given time intervals """
-    # filesystem = prepare_filesystem(config)
-    #
-    # LOGGER.info(f'Copy tiff files locally to {config.predictions_dir}')
-    # for time_interval in config.time_intervals:
-    #     if not os.path.exists(f'{config.predictions_dir}/{time_interval}'):
-    #         if not filesystem.exists(f'{config.tiffs_folder}/{time_interval}/'):
-    #             filesystem.makedirs(f'{config.tiffs_folder}/{time_interval}/')
-    #         copy_dir(filesystem, f'{config.tiffs_folder}/{time_interval}/',
-    #                  f'{config.predictions_dir}/', f'{time_interval}')
-    os.makedirs(config.predictions_dir, exist_ok=True)
-    copy_tree(config.tiffs_folder, config.predictions_dir)
-
     LOGGER.info(f'Move files to new folders')
-    # for time_interval in config.time_intervals:
-    #     for utm in config.utms:
-    #         utm_dir = f'{config.predictions_dir}/{time_interval}/utm{utm}'
-    #         os.makedirs(utm_dir, exist_ok=True)
-    #         tiffs_to_move = glob(f'{config.predictions_dir}/{time_interval}/*-{utm}.tiff')
-    #         for tiff in tiffs_to_move:
-    #             tiff_name = os.path.basename(tiff)
-    #             os.rename(tiff, f'{utm_dir}/{tiff_name}') # !!!!!!!!!!!!!!!!!!!!! undo !!!!!!!!
 
     utm_dir = f'{config.predictions_dir}'
     os.makedirs(utm_dir, exist_ok=True)
-    tiffs_to_move = glob(f'{config.predictions_dir}/*.tiff')
-    for tiff in tiffs_to_move:
-        tiff_name = os.path.basename(tiff)
-        os.rename(tiff, f'{utm_dir}/{tiff_name}')
 
     LOGGER.info(f'Create weights file {config.weights_file}')
     with rasterio.open(config.weights_file, 'w', driver='gTIFF', width=config.shape[0], height=config.shape[1], count=1,
@@ -477,12 +421,10 @@ def run_vectorisation(config: VectorisationConfig) -> List[str]:
     start = time.time()
     LOGGER.info(f'Running contours for {time_interval}/{utm}!')
 
-    # contours_dir = f'{config.contours_dir}/{time_interval}/utm{utm}/'
     contours_dir = f'{config.contours_dir}/'
     LOGGER.info(f'Create contour folder {contours_dir}')
     os.makedirs(contours_dir, exist_ok=True)
 
-    # predictions_dir = f'{config.predictions_dir}/{time_interval}/utm{utm}/'
     predictions_dir = f'{config.predictions_dir}/'
     tifs = glob(f'{predictions_dir}*.tiff')
     output_vrt = f'{config.vrt_dir}/vrt_{time_interval}_{utm}.vrt'
@@ -509,37 +451,32 @@ def run_vectorisation(config: VectorisationConfig) -> List[str]:
                  'rows': [file for file, finished, _ in results if finished],
                  'chunk_size': config.chunk_size,
                  'chunk_overlap': config.chunk_overlap,
-                 'contours_dir': config.contours_dir
+                 'contours_dir': config.contours_dir,
+                 'gpkg_path': config.gpkg_path,
                  })
 
     LOGGER.info(
         f'Row contours processing for {time_interval}/{utm} done in {(time.time() - start) / 60} min!\n\n')
 
-    list_of_merged_files = multiprocess(
-        merging_rows, rows, max_workers=config.max_workers)
+    # TODO don't need multiprocessing as only one row in rows
+    list_of_merged_files = multiprocess(merging_rows, rows, max_workers=config.max_workers)
 
     return list_of_merged_files
 
 
-def main_vectorisation():
+def main_vectorisation(GPKG_FILE_PATH, PROJECT_DATA_ROOT, PREDICTIONS_DIR, CONTOURS_DIR):
     """ Main function to perform vectorisation on the predictions """
-    # Create new directories
-    os.makedirs(PREDICTIONS_DIR, exist_ok=True)
-    os.makedirs(CONTOURS_DIR, exist_ok=True)
 
     # Complete the VECTORIZE_CONFIG dictionary with necessary paths
-    VECTORIZE_CONFIG["tiffs_folder"] = TIFFS_FOLDER
-    VECTORIZE_CONFIG["weights_file"] = WEIGHT_FILE
-    VECTORIZE_CONFIG["vrt_dir"] = TIFFS_FOLDER
+    VECTORIZE_CONFIG["weights_file"] = os.path.join(PROJECT_DATA_ROOT, "weights.tiff")
+    VECTORIZE_CONFIG["vrt_dir"] = PROJECT_DATA_ROOT
     VECTORIZE_CONFIG["predictions_dir"] = PREDICTIONS_DIR
     VECTORIZE_CONFIG["contours_dir"] = CONTOURS_DIR
-    VECTORIZE_CONFIG["max_workers"] = MAX_WORKERS
+    VECTORIZE_CONFIG["gpkg_path"] = GPKG_FILE_PATH
 
     # Create VectorisationConfig object
     vector_config = VectorisationConfig(
-        tiffs_folder=VECTORIZE_CONFIG['tiffs_folder'],
-        # time_intervals=config['time_intervals'],
-        # utms=config['utms'],
+        gpkg_path=VECTORIZE_CONFIG["gpkg_path"],
         shape=tuple(VECTORIZE_CONFIG['shape']),
         buffer=tuple(VECTORIZE_CONFIG['buffer']),
         weights_file=VECTORIZE_CONFIG['weights_file'],
@@ -559,4 +496,14 @@ def main_vectorisation():
 
 
 if __name__ == "__main__":
-    main_vectorisation()
+    # Constants
+    PROJECT_DATA_ROOT = CONFIG['niva_project_data_root_inf']
+    TILE_ID = CONFIG['TILE_ID']
+    # Inferred constants
+    PROJECT_DATA_ROOT = os.path.join(PROJECT_DATA_ROOT, TILE_ID)
+    # the folders that will be created during the pipeline run
+    EOPATCHES_FOLDER = os.path.join(PROJECT_DATA_ROOT, "eopatches")
+    PREDICTIONS_DIR = os.path.join(PROJECT_DATA_ROOT, "predictions")
+    CONTOURS_DIR = os.path.join(PROJECT_DATA_ROOT, "contours")
+    GPKG_FILE_PATH = os.path.join(CONTOURS_DIR, f"{TILE_ID}.gpkg")
+    main_vectorisation(GPKG_FILE_PATH, PROJECT_DATA_ROOT, PREDICTIONS_DIR, CONTOURS_DIR)

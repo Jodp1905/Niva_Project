@@ -25,13 +25,7 @@ from niva_utils.config_loader import load_config  # noqa: E402
 CONFIG = load_config()
 
 # Constants
-NIVA_PROJECT_DATA_ROOT = CONFIG['niva_project_data_root']
 COMBINE_CONFIG = CONFIG['combine_config']
-
-# Inferred constants
-EOPATCHES_FOLDER = Path(f"{NIVA_PROJECT_DATA_ROOT}/inference/eopatches")
-TIFFS_FOLDER = Path(f"{NIVA_PROJECT_DATA_ROOT}/inference/tiffs")
-PROCESS_POOL_WORKERS = os.cpu_count()
 
 
 def smooth(array: np.ndarray, disk_size: int = 2) -> np.ndarray:
@@ -86,14 +80,10 @@ def compile_up_sample(eopatch, tidx=0, disk_size=2, scale_factor=2):
 
 def save2tiff(eop_path, tiffs_folder, tidx=0, disk_size=2, scale_factor=2):
     eopatch = EOPatch.load(eop_path)
-    eopatch = compile_up_sample(
-        eopatch, tidx=tidx, disk_size=disk_size, scale_factor=scale_factor)
-    eopatch.save(
-        eop_path, overwrite_permission=OverwritePermission.OVERWRITE_PATCH)
+    eopatch = compile_up_sample(eopatch, tidx=tidx, disk_size=disk_size, scale_factor=scale_factor)
+    eopatch.save(eop_path, overwrite_permission=OverwritePermission.OVERWRITE_PATCH)
 
-    # tid = eopatch.timestamp[tidx].month
-    filename = os.path.join(
-        tiffs_folder, f'{os.path.split(eop_path)[1]}-{eopatch.bbox.crs.epsg}.tiff')
+    filename = os.path.join(tiffs_folder, f'{os.path.split(eop_path)[1]}-{eopatch.bbox.crs.epsg}.tiff')
     # https://github.com/sentinel-hub/field-delineation/blob/main/fd/post_processing.py#L248
     export_task = ExportToTiffTask(feature=(FeatureType.DATA_TIMELESS, f'COMBINED_PREDICTED'),
                                    folder=".",
@@ -101,26 +91,21 @@ def save2tiff(eop_path, tiffs_folder, tidx=0, disk_size=2, scale_factor=2):
     export_task.execute(eopatch, filename=filename)
     return eopatch
 
-
 def run_combine(config):
 
     eopatches = [f.path for f in os.scandir(
         config["eopatches_folder"]) if f.is_dir() and f.name.startswith('eopatch')]
 
-    LOGGER.info(
-        f'Combine extent & boundary and save to tiff for {len(eopatches)} EOPatch files')
+    LOGGER.info(f'Combine extent & boundary and save to tiff for {len(eopatches)} EOPatch files')
     results = []
     # TODO delete time_interval from combine and vectorization
     tiffs_folder = config["tiffs_folder"]
     with ProcessPoolExecutor(max_workers=config["workers"]) as executor:
         futures = []
         for file_path in eopatches:
-            future = executor.submit(save2tiff,
-                                     eop_path=file_path,
-                                     tiffs_folder=tiffs_folder,
-                                     tidx=0,
-                                     disk_size=config["disk_size"],
-                                     scale_factor=config["scale_factor"])
+            future = executor.submit(save2tiff, eop_path=file_path,
+                                     tiffs_folder=tiffs_folder, tidx=0,
+                                     disk_size=config["disk_size"], scale_factor=config["scale_factor"])
             futures.append(future)
         for future in tqdm(as_completed(futures), total=len(futures),
                            desc='Combine and save to tiff predictions'):
@@ -132,14 +117,21 @@ def run_combine(config):
     return results
 
 
-def main_combine():
+
+def main_combine(EOPATCHES_FOLDER, PREDICTIONS_DIR):
     COMBINE_CONFIG["eopatches_folder"] = EOPATCHES_FOLDER
-    COMBINE_CONFIG["tiffs_folder"] = TIFFS_FOLDER
-    COMBINE_CONFIG["workers"] = PROCESS_POOL_WORKERS
-    TIFFS_FOLDER.mkdir(parents=True, exist_ok=True)
+    COMBINE_CONFIG["tiffs_folder"] = PREDICTIONS_DIR
     res = run_combine(COMBINE_CONFIG)
     LOGGER.info(f'Combine and save to tiff completed for {len(res)} EOPatches')
 
 
 if __name__ == "__main__":
-    main_combine()
+    # Constants
+    PROJECT_DATA_ROOT = CONFIG['niva_project_data_root_inf']
+    TILE_ID = CONFIG['TILE_ID']
+    # Inferred constants
+    PROJECT_DATA_ROOT = os.path.join(PROJECT_DATA_ROOT, TILE_ID)
+    # the folders that will be created during the pipeline run
+    EOPATCHES_FOLDER = os.path.join(PROJECT_DATA_ROOT, "eopatches")
+    PREDICTIONS_DIR = os.path.join(PROJECT_DATA_ROOT, "predictions")
+    main_combine(EOPATCHES_FOLDER, PREDICTIONS_DIR)
