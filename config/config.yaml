@@ -121,8 +121,16 @@ postprocess_config:
   biggest_area: 10000000
   version: 1.6
 
+
+# accuracy computations
+# First step download GT data to compare to
 download_cadastre:
   sub_name: "RPG_2-2__SHP_LAMB93_R27_2023-01-01"  # (région Bourgogne-Franche-Comté)
   sim_tolerance: 5
   chunk_size: 20480
   flag_download: True
+
+# Second step convert vector -> raster and compute metrics
+accuracy_computation:
+  version: 1.6  # as in postprocess_config
+  visualize: True
