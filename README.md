@@ -308,6 +308,77 @@ You can use the following:
   nsys-ui ./my_nsys_trace_file.nsys-rep
   ```
 
+## Inference pipeline
+
+To run inference pipeline model (ResUnet-a) pretrained weights (and config) are REQUIRED!
+In config/config.cfg it's parameters
+
+```txt
+prediction_config:
+  model_path: "checkpoints"  # paste your own path to model checkpoint !!!!
+  model_cfg_path: "model_cfg.json" # paste your own path to model configs !!!!
+```
+
+Other required parameters (niva_project_data_root_inf, TILE_ID):
+```txt
+# INFERENCE
+niva_project_data_root_inf: "inference" # TO SET
+# TILE_ID: "S2A_30UWU_20230302_0_L2A"  # Tile in région Bretagne
+TILE_ID: "S2B_31TEN_20230420_0_L2A"  # Paste your own tile id to process
+```
+TILE_ID could be searched with the help of scripts/notebooks/tile_search.ipynd.
+
+The command to download tile the chosen tile:
+``` sh
+  python src/inference/tile_download_by_id.py
+```
+The command to run inference on the downloaded tile:
+``` sh
+  python src/inference/main_inference.py
+```
+The output of the commands have the following structure:
+
+```txt
+[niva_project_data_root_inf]
+  [TILE_ID]
+    contours
+    eopatches
+    predictions
+    tile
+      [TILE_ID].nc
+      metadata.gpkg
+```
+The final GeoJson file with predicted boundaries are in [TILE_ID]/contours/v_[VERSION]/[TILE_ID].geojson.
+
+### Accuracy computation
+
+For predicted vectorized field boundaries accuracy metrics are computed with the help of following steps.
+
+1. Finding Ground Truth data to compare predicted to. 
+
+For France there is https://geoservices.ign.fr/rpg where crop field boundary data is 
+stored (vector format). 
+
+Chose the region the tile is covering.
+
+2. Download the cadastre data.
+
+The command:
+``` sh
+  python src/inference/download_cadastre.py
+```
+The results of the command is saved vector data for the tile region.
+
+3. Convert vector data to raster and compute metrics (accuracy, Intresection over Union, ...).
+
+The command:
+``` sh
+  python src/inference/accuracy_computation.py
+```
+The output is vectorized field boundaries (Ground Truth - cadastre, Predicted - inference pipeline generated) and
+metrics_v[VERSION].csv file with computed metrics for every patch (sub-tile) and mean of them.
+
+
 ## Implementation details
 
 ### Data preprocessing implementation
