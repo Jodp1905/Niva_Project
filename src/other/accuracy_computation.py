@@ -24,6 +24,8 @@ from eolearn.geometry import VectorToRaster
 from tqdm import tqdm
 
 from utils_plot import draw_true_color, draw_bbox, draw_vector_timeless, draw_mask
+from transform_vector2mask import main_rastorize_vector
+
 # Add the src directory to the path
 src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(src_path)
@@ -55,88 +57,6 @@ EOP_DIR = os.path.join(PROJECT_DATA_ROOT, "eopatches")  # here saved rasterized 
 # here metrics are saved
 METRICS_PATH = os.path.join(PROJECT_DATA_ROOT, f"metrics_{VERSION}.csv")
 
-@dataclass
-class GsaaToEopatchConfig:
-    vector_file_path: str
-    feature_name: str
-    vector_feature: Tuple[FeatureType, str]
-    extent_feature: Tuple[FeatureType, str]
-    boundary_feature: Tuple[FeatureType, str]
-    #distance_feature: Tuple[FeatureType, str]
-    eopatches_folder: str
-    buffer_poly: int = -10
-    no_data_value: int = 0
-    width: int = 1000
-    height: int = 1000
-    disk_radius: int = 2
-
-
-def create_eopatch(vector_file_path,
-                   eopatch_path=None,
-                   feature_name='CADASTRE'):
-    """
-    vector_data: GeoPandas
-    """
-    LOGGER.info(f"load EOPatch from {eopatch_path}")
-    eopatch = EOPatch.load(eopatch_path)
-    croped_bounds = gpd.GeoSeries([box(*eopatch.bbox)], crs=eopatch.bbox.crs.epsg)
-    vector_data = gpd.read_file(vector_file_path, bbox=croped_bounds)
-    # if not the same crs
-    vector_data = vector_data.to_crs(epsg=eopatch.bbox.crs.epsg)
-
-    eopatch.add_feature(FeatureType.VECTOR_TIMELESS, feature_name, vector_data)
-    # Create and save unique EOPatch
-    eopatch.save(eopatch_path,
-                 overwrite_permission=OverwritePermission.OVERWRITE_PATCH)
-    LOGGER.info(eopatch)
-    return eopatch
-
-
-def main_rastorize_vector(config):
-    # get extent mask from vector
-    config = GsaaToEopatchConfig(
-        vector_file_path=config['vector_file_path'],
-        eopatches_folder=config['eopatches_folder'],
-        feature_name=config['feature_name'],
-        vector_feature=(FeatureType(config['vector_feature'][0]), config['vector_feature'][1]),
-        extent_feature=(FeatureType(config['extent_feature'][0]), config['extent_feature'][1]),
-        boundary_feature=(FeatureType(config['boundary_feature'][0]), config['boundary_feature'][1]),
-        # distance_feature=(FeatureType(config['distance_feature'][0]), config['distance_feature'][1]),
-        # height=rasterize_config['height'],
-        # width=rasterize_config['width'],  # shapes not sure
-    )
-
-    eopatch = create_eopatch(vector_file_path=config.vector_file_path,
-                             eopatch_path=config.eopatches_folder,
-                             feature_name=config.feature_name)
-
-    # VectorToRaster
-    # https://github.com/sentinel-hub/eo-learn/blob/df8bbe80a0a0dbd9326c05b2c2d94ff41b152e3d/eolearn/geometry/transformations.py#L42
-    # raster_resolution ? not raster_shape
-    vec2ras = VectorToRaster(config.vector_feature,
-                             config.extent_feature,
-                             values=1,  #raster_shape=(config.width, config.height),
-                             raster_resolution=(10, 10), # right way
-                             no_data_value=config.no_data_value,
-                             buffer=config.buffer_poly, write_to_existing=False)
-    vec2ras.execute(eopatch)
-    # add boundary
-    eopatch = extent2boundary(eopatch, extent_feature=config.extent_feature[1],
-                              boundary_feature=config.boundary_feature[1])
-    eopatch.save(config.eopatches_folder,
-                 overwrite_permission=OverwritePermission.OVERWRITE_PATCH)
-    # LOGGER.info(eopatch)
-    return eopatch
-
-
-def extent2boundary(eopatch, extent_feature, boundary_feature, structure=disk(2)):
-    # https://github.com/sentinel-hub/field-delineation/blob/main/fd/gsaa_to_eopatch.py#L87
-    extent_mask = eopatch.mask_timeless[extent_feature].squeeze(axis=-1)
-    boundary_mask = binary_dilation(extent_mask, selem=structure) - extent_mask
-    eopatch.add_feature(FeatureType.MASK_TIMELESS, boundary_feature,
-                        boundary_mask[..., np.newaxis])
-    return eopatch
-
 
 def display_cm(cm):
     disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=['no field', 'field'])
@@ -159,16 +79,18 @@ def compute_iou_from_cm(cm):
     return np.nanmean(IoU)
 
 
-def compute_iou(y_pred, y_true, cm_display=True):
+def compute_iou(y_true, y_pred, cm_display=True):
     y_pred = y_pred.flatten()
     y_true = y_true.flatten()
+    LOGGER.info(f"y_true fields ={np.count_nonzero(y_true) / len(y_true)}, "
+                f"y_pred fields ={np.count_nonzero(y_pred) / len(y_pred)}")
     cm = confusion_matrix(y_true, y_pred, labels=[0, 1])
     if cm_display:
         display_cm(cm / len(y_true))
     return cm, compute_iou_from_cm(cm)
 
 
-def comp_scores(mask_pred, mask_gt):
+def comp_scores(mask_gt, mask_pred):
     mask_gt = mask_gt.flatten()
     mask_pred = mask_pred.flatten()
     score_names = ["accuracy_score", "matthews_corrcoef", "cohen_kappa_score"]
@@ -176,7 +98,7 @@ def comp_scores(mask_pred, mask_gt):
     score_vals.append(accuracy_score(mask_gt, mask_pred))
     score_vals.append(matthews_corrcoef(mask_gt, mask_pred))
     score_vals.append(cohen_kappa_score(mask_gt, mask_pred))
-    cm, iou = compute_iou(mask_pred, mask_gt, cm_display=VISUALIZE)
+    cm, iou = compute_iou(y_pred=mask_pred, y_true=mask_gt, cm_display=VISUALIZE)
     score_names.append("iou")
     score_vals.append(iou)
 
@@ -196,7 +118,6 @@ def get_masks_pred_gt(eopatch_folder):
                                               [CADASTRE_FINAL_TILE_PATH,
                                                PRED_FILE_PATH]):
         rasterise_gsaa_config = {
-            "create_eopatch": feature_name == "CADASTRE",
             "vector_file_path": vector_file_path,
             "eopatches_folder": eopatch_folder,
             "feature_name": feature_name,
@@ -219,9 +140,10 @@ def display_metrics(eopatch_folder):
 
 def visualize_eopatch(eop):
     fig, axis = plt.subplots(figsize=(15, 10), ncols=1, sharey=True)
-    eop.vector_timeless['CADASTRE'].plot(ax=axis, color='green')
-    eop.vector_timeless['PREDICTED'].plot(ax=axis, color='red')
+    eop.vector_timeless['CADASTRE'].plot(ax=axis, color='green', alpha=0.5)
+    eop.vector_timeless['PREDICTED'].plot(ax=axis, color='red', alpha=0.5)
     plt.show()
+
 
     for mask_name in ["EXTENT", "BOUNDARY"]:
         time_idx = 0  # only one tile stemp
@@ -263,11 +185,12 @@ def visualize_eopatch(eop):
                         grid=False)
         draw_bbox(ax[2], eop)
         draw_mask(ax[2], eop, time_idx=None, feature_name=f'{mask_name}_PREDICTED', alpha=.3,
-                  data_timeless=True)  # visualize predicted masks before vectorization step
+                  data_timeless=True)  # !!!!!!!!! visualize predicted masks before vectorization step
         draw_true_color(ax[3], eop, time_idx=time_idx, factor=3.5 / 10000, feature_name='BANDS', bands=(2, 1, 0),
                         grid=False)
         ax[3].grid()
         plt.show()
+
 
 
 def main():
