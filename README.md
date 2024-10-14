@@ -311,7 +311,7 @@ You can use the following:
 ## Inference pipeline
 
 To run inference pipeline model (ResUnet-a) pretrained weights (and config) are REQUIRED!
-In config/config.cfg it's parameters
+In `config/config.cfg` it's parameters
 
 ```txt
 prediction_config:
@@ -321,12 +321,12 @@ prediction_config:
 
 Other required parameters (niva_project_data_root_inf, TILE_ID):
 ```txt
-# INFERENCE
-niva_project_data_root_inf: "inference" # TO SET
-# TILE_ID: "S2A_30UWU_20230302_0_L2A"  # Tile in région Bretagne
-TILE_ID: "S2B_31TEN_20230420_0_L2A"  # Paste your own tile id to process
+  # INFERENCE
+  niva_project_data_root_inf: "inference" # TO SET
+  # TILE_ID: "S2A_30UWU_20230302_0_L2A"  # Tile in région Bretagne
+  TILE_ID: "S2B_31TEN_20230420_0_L2A"  # Paste your own tile id to process
 ```
-TILE_ID could be searched with the help of scripts/notebooks/tile_search.ipynd.
+TILE_ID could be searched with the help of `scripts/notebooks/tile_search.ipynd`.
 
 The command to download tile the chosen tile:
 ``` sh
@@ -348,7 +348,7 @@ The output of the commands have the following structure:
       [TILE_ID].nc
       metadata.gpkg
 ```
-The final GeoJson file with predicted boundaries are in [TILE_ID]/contours/v_[VERSION]/[TILE_ID].geojson.
+The final GeoJson file with predicted boundaries are in `[TILE_ID]/contours/v_[VERSION]/[TILE_ID].geojson`.
 
 ### Accuracy computation
 
@@ -365,18 +365,18 @@ Chose the region the tile is covering.
 
 The command:
 ``` sh
-  python src/inference/download_cadastre.py
+  python src/other/download_cadastre.py
 ```
 The results of the command is saved vector data for the tile region.
 
-3. Convert vector data to raster and compute metrics (accuracy, Intresection over Union, ...).
+3. Convert vector data to raster and compute metrics (accuracy, Intersection over Union, ...).
 
 The command:
 ``` sh
-  python src/inference/accuracy_computation.py
+  python src/other/accuracy_computation.py
 ```
 The output is vectorized field boundaries (Ground Truth - cadastre, Predicted - inference pipeline generated) and
-metrics_v[VERSION].csv file with computed metrics for every patch (sub-tile) and mean of them.
+`metrics_v[VERSION].csv` file with computed metrics for every patch (sub-tile) and mean of them.
 
 
 ## Implementation details
@@ -389,4 +389,5 @@ Preprocessing workflow diagram is available under `/visuals` :
 
 ### Inference implementation
 
-TODO add inference diagram
+Inference diagram is vailable under `/visuals` :
+![Inference Workflow](visuals/inference_workflow.png)
