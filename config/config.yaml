@@ -1,7 +1,7 @@
 # Config file for the project
 
 # GENERAL
-niva_project_data_root: "/home/niva/ai4boundaries_data" # TO SET
+niva_project_data_root: "home/niva/ai4boundaries_data" # TO SET
 
 # PREPROCESSING
 download_data:
@@ -9,13 +9,13 @@ download_data:
   ai4boundaries_split_table: "ai4boundaries_ftp_urls_sentinel2_split.csv"
   dl_rate_limit: 5
   dl_retry_limit: 3
-  fraction_download: 0.001
+  fraction_download: 1
 
 create_eopatches:
   # no modifiable parameters
 
 create_npz:
-  npz_chunk_size: 20
+  npz_chunk_size: 40
 
 create_datasets:
   shuffle_buffer_size: 2000
@@ -50,9 +50,9 @@ model:
 
 # TRAINING
 training:
-  num_epochs: 2
-  batch_size: 2
-  iterations_per_epoch: 4
+  num_epochs: 2 # planed 80 epochs
+  batch_size: 128
+  iterations_per_epoch: 245 #  5236 * 6 // batch_size
   training_type: "SingleWorker"
   use_npz: false
   tf_full_profiling: false
