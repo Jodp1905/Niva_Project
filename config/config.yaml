@@ -1,7 +1,7 @@
 # Config file for the project
 
 # GENERAL
-niva_project_data_root: ai4boundaries_dataset # TO SET
+niva_project_data_root: "/home/niva/ai4boundaries_data" # TO SET
 
 # PREPROCESSING
 download_data:
