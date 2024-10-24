@@ -1,3 +1,6 @@
+# At the top of the code, along with the other `import`s
+from __future__ import annotations
+
 from eoflow.models.segmentation_unets import ResUnetA
 import argparse
 import logging

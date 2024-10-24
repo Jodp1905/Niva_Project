@@ -1,3 +1,6 @@
+# At the top of the code, along with the other `import`s
+from __future__ import annotations
+
 from create_eopatches import create_all_eopatches
 from create_npz import eopatches_to_npz_files
 from create_datasets import create_datasets

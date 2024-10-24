@@ -1,3 +1,6 @@
+# At the top of the code, along with the other `import`s
+from __future__ import annotations
+
 from tf_data_utils import normalize_meanstd, augment_data
 from tf_data_utils import Unpack, ToFloat32, FillNaN, OneMinusEncoding, LabelsToDict
 import shutil

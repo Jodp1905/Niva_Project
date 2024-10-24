@@ -1,3 +1,6 @@
+# At the top of the code, along with the other `import`s
+from __future__ import annotations
+
 import tensorflow as tf
 import os
 import json
