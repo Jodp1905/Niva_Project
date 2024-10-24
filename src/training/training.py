@@ -263,6 +263,7 @@ def initialise_callbacks(model_path):
     tensorboard_callback = tf.keras.callbacks.TensorBoard(
         log_dir=logs_path,
         update_freq=TENSORBOARD_UPDATE_FREQ,
+        profile_batch='120,130', # 500,510
     )
 
     checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
