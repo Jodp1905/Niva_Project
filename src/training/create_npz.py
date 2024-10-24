@@ -213,11 +213,11 @@ def eopatches_to_npz_files():
         nb_chunks = len(eopatches_paths) // NPZ_CHUNK_SIZE
         lost = len(eopatches_paths) % NPZ_CHUNK_SIZE
         chunks = [eopatches_paths[i:i + NPZ_CHUNK_SIZE]
-                  for i in range(0, len(eopatches_paths) - lost, NPZ_CHUNK_SIZE)]
+                  for i in range(0, len(eopatches_paths) - lost + 1, NPZ_CHUNK_SIZE)]
 
         LOGGER.info(
-            f'Processing {len(eopatches_paths)} patchlets in {nb_chunks} chunks '
-            f'containing {NPZ_CHUNK_SIZE} eopatches each, with {lost} eopatches unused.')
+            f'Processing {len(eopatches_paths)} patchlets in {len(chunks)} chunks '
+            f'containing {NPZ_CHUNK_SIZE} eopatches each')
 
         # Process chunks in parallel
         df_list = []
