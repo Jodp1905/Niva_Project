@@ -12,7 +12,8 @@ import pandas as pd
 from enum import Enum
 import json
 import socket
-import nvtx
+import shutil
+#import nvtx
 
 # Add the src directory to the path
 src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -445,6 +446,12 @@ def training_main(
         json.dump(CONFIG_TRAINING, jfile, indent=4)
     with open(f'{model_folder}/model_cfg.json', 'w') as jfile:
         json.dump(model_config, jfile, indent=4)
+
+    with open(f'{model_folder}/config.json', 'w') as jfile:
+        json.dump(CONFIG, jfile, indent=4)
+    # copy split data to model directory
+    shutil.copy(Path(f'{NIVA_PROJECT_DATA_ROOT}/training_data/sentinel2/ai4boundaries_ftp_urls_sentinel2_split.csv'),
+                model_folder)
 
     # Load datasets
     LOGGER.info(
